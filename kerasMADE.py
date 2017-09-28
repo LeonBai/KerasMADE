@@ -13,9 +13,25 @@ from keras.models import Model
 from keras import backend as K
 from keras import activations
 
-class MaskedDenseLayer(Layer):
+state = 20
+num_of_hlayer = 5
+graph_size = 4
+hlayer_size = 3
 
-    def __init__(self, units, mask, **kwargs):
+#generating subsets as 3d matrix 
+subsets = np.random.randint(0,2,(num_of_hlayer,hlayer_size,graph_size))
+
+#generating masks as 3d matrix
+masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
+
+for i in range(1, num_of_hlayer):
+    for j in range(0, hlayer_size):
+        for k in range(0, hlayer_size):
+            if all( (subsets[i][j] - subsets[i-1][k]) >= 0):
+                masks[i][k][j] = 1
+
+class MaskedDenseLayer(Layer):
+    def __init__(self, units, **kwargs):
         #self.output_dim = output_dim
         super(MaskedDenseLayer, self).__init__(**kwargs)
         self.units = units
