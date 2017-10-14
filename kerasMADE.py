@@ -9,10 +9,11 @@ import numpy as np
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
 from keras.models import Model
+from keras.layers import Dense
 from keras import backend as K
 from keras.layers import Input
 import keras.activations as activations
-from keras.layers.merge import Multiply
+from keras.layers.merge import Multiply, multiply
 
 state = np.random.randint(0,20)
 
@@ -21,6 +22,12 @@ class ReassignMask(Callback):
     def on_epoch_end(self, epoch, logs):
         global state 
         state = np.random.randint(0,20)
+        
+class SaveWeights(Callback):
+    def on_epoch_end(self, epoch, logs):
+        for idx, layer in enumerate(model.layers):
+            print ("layer", idx, "= ", layerlayer.get_wights)
+            
 
 def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size):
     all_masks = []
@@ -77,9 +84,9 @@ class MaskedDenseLayer(Layer):
         # Create a trainable weight variable for this layer.
         self.kernel = self.add_weight(name='kernel', 
                                       shape=(input_shape[1], self.output_dim),
-                                      initializer='uniform',
+                                      initializer='glorot_uniform',
                                       trainable=True)
-        super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
+        #super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
     def call(self, x):
         print('x:', x)
@@ -89,9 +96,11 @@ class MaskedDenseLayer(Layer):
         print('dot result:', K.dot(x, self.kernel))
         packed_mask = K.variable(value=self._all_masks[state][self._layer_number])
         masked = Multiply()([self.kernel, packed_mask])
+        print('masked:', K.eval(masked))
         output = K.dot(x, masked)
         return self._activation(output)
 
+    
     def compute_output_shape(self, input_shape):
         return (input_shape[0], self.output_dim)
 
@@ -113,27 +122,50 @@ def main():
     graph_size = 4
     
     all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
-    #all_masks = np.asarray(all_masks, dtype='float32')
     
     input_layer = Input(shape=(4,))
-    hlayer1 = MaskedDenseLayer(3, 0, all_masks, 'relu')(input_layer)
-    hlayer2 = MaskedDenseLayer(3, 1, all_masks, 'relu')(hlayer1)
-    hlayer3 = MaskedDenseLayer(3, 2, all_masks, 'relu')(hlayer2)
-    hlayer4 = MaskedDenseLayer(3, 3, all_masks, 'relu')(hlayer3)
-    hlayer5 = MaskedDenseLayer(3, 4, all_masks, 'relu')(hlayer4)
-    hlayer6 = MaskedDenseLayer(3, 5, all_masks, 'relu')(hlayer5)
-    output_layer = MaskedDenseLayer(4,6, all_masks, 'sigmoid')(hlayer6)
+    hlayer1 = MaskedDenseLayer(hlayer_size, 0, all_masks, 'relu')(input_layer)
+    hlayer2 = MaskedDenseLayer(hlayer_size, 1, all_masks, 'relu')(hlayer1)
+    hlayer3 = MaskedDenseLayer(hlayer_size, 2, all_masks, 'relu')(hlayer2)
+    hlayer4 = MaskedDenseLayer(hlayer_size, 3, all_masks, 'relu')(hlayer3)
+    hlayer5 = MaskedDenseLayer(hlayer_size, 4, all_masks, 'relu')(hlayer4)
+    hlayer6 = MaskedDenseLayer(hlayer_size, 5, all_masks, 'relu')(hlayer5)
+    output_layer = MaskedDenseLayer(graph_size,6, all_masks, 'sigmoid')(hlayer6)
     autoencoder = Model(input_layer, output_layer)
     autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
     reassign_mask = ReassignMask()
+    
     autoencoder.fit(train_data, train_data,
                 epochs=100,
                 batch_size=20,
                 shuffle=True,
                 validation_data=(valid_data, valid_data),
                 callbacks=[reassign_mask],
-                verbose=2)
-
+                verbose=1)
+    
+    #for idx, layer in enumerate(autoencoder.layers):
+        #print ("layer", idx, "= ", layer.get_weights)
+#    input_layer = Input(shape=(4,))
+#    encoded = Dense(3, activation='relu')(input_layer)
+#    encoded = Dense(3, activation='relu')(encoded)
+#    encoded = Dense(3, activation='relu')(encoded)
+#
+#    decoded = Dense(3, activation='relu')(encoded)
+#    decoded = Dense(3, activation='relu')(decoded)
+#    decoded = Dense(4, activation='sigmoid')(decoded)
+#    autoencoder = Model(input_layer, decoded)
+#    autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
+#    autoencoder.fit(train_data, train_data,
+#                        epochs=100,
+#                        batch_size=20,
+#                        shuffle=True,
+#                        validation_data=(valid_data, valid_data),
+#                        verbose=2)
+    
+    #for idx, layer in enumerate(autoencoder.layers):
+        #print ("layer", idx, "= ", layer.get_weights)
+    a = autoencoder.trainable_weights
+    b = autoencoder.predict(test_data)
 
 if __name__=='__main__':
     main()
