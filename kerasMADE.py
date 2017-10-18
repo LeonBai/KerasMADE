@@ -9,11 +9,10 @@ import numpy as np
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
 from keras.models import Model
-from keras.layers import Dense
 from keras import backend as K
 from keras.layers import Input
 import keras.activations as activations
-from keras.layers.merge import Multiply, multiply
+from keras.layers.merge import Multiply
 
 state = np.random.randint(0,20)
 
@@ -82,28 +81,26 @@ class MaskedDenseLayer(Layer):
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.kernel = self.add_weight(name='kernel', 
-                                      shape=(input_shape[1], self.output_dim),
+                                      shape=(input_shape[0][1], self.output_dim),
                                       initializer='glorot_uniform',
                                       trainable=True)
-        #super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
+        super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
     def call(self, l):
-        x = l[0]
+        self.x = l[0]
         self._mask = l[1]
-        print('x:', x)
+        #print('x:', x)
         print('kernel:', self.kernel)
-        #print('mask:', self._all_masks[state][self._layer_number].shape)
-        print('dot result:', K.dot(x, self.kernel))
-        #packed_mask = K.variable(value=self._mask)
-        masked = Multiply()([self.kernel, K.reshape(mask,K.shape(kernel))])
+        #print('dot result:', K.dot(x, self.kernel))
+        masked = Multiply()([self.kernel, self._mask])
         #masked = Multiply()([self.kernel, packed_mask])
-        print('masked:', K.eval(masked))
-        output = K.dot(x, masked)
-        return self._activation(output)
+        #print('masked:', K.eval(masked))
+        self._output = K.dot(self.x, masked)
+        return self._activation(self._output)
 
     
     def compute_output_shape(self, input_shape):
-        return (input_shape[0], self.output_dim)
+        return input_shape[0] + (self.output_dim,)
 
     
 def main():
@@ -124,42 +121,44 @@ def main():
     
     all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
     
-    mask_1 = Input( shape = (graph_size * hlayer_size,) )
-    mask_2 = Input( shape = (graph_size * hlayer_size,) )
-    mask_3 = Input( shape = (graph_size * hlayer_size,) )
-    mask_4 = Input( shape = (graph_size * hlayer_size,) )
-    mask_5 = Input( shape = (graph_size * hlayer_size,) )
-    mask_6 = Input( shape = (graph_size * hlayer_size,) )
-    mask_7 = Input( shape = (graph_size * hlayer_size,) )
-
     input_layer = Input(shape=(4,))
+
+    mask_1 = Input( shape = (graph_size , hlayer_size) )
+    mask_2 = Input( shape = (hlayer_size , hlayer_size) )
+    mask_3 = Input( shape = (hlayer_size , hlayer_size) )
+    mask_4 = Input( shape = (hlayer_size , hlayer_size) )
+    mask_5 = Input( shape = (hlayer_size , hlayer_size) )
+    mask_6 = Input( shape = (hlayer_size , hlayer_size) )
+    mask_7 = Input( shape = (hlayer_size , graph_size) )
+
     
-    hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')(input_layer, mask_1)
-    hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')(hlayer1, mask_2)
-    hlayer3 = MaskedDenseLayer(hlayer_size, 'relu')(hlayer2, mask_3)
-    hlayer4 = MaskedDenseLayer(hlayer_size, 'relu')(hlayer3, mask_4)
-    hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')(hlayer4, mask_5)
-    hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')(hlayer5, mask_6)
-    output_layer = MaskedDenseLayer(graph_size, 6, 'sigmoid')(hlayer6, mask_7)
-    autoencoder = Model(input_layer, output_layer, mask_1, mask_2, mask_3,
-                        mask_4, mask_5, mask_6, mask_7)
+    hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
+    hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
+    hlayer3 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer2, mask_3] )
+    hlayer4 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer3, mask_4] )
+    hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer4, mask_5] )
+    hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer5, mask_6] )
+    output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer6, mask_7] )
+    autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
+                        mask_4, mask_5, mask_6, mask_7], outputs=[output_layer])
     autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
     #reassign_mask = ReassignMask()
-    state = np.random.randint(0,20)
     
     for i in range(0, num_of_all_masks):
-        autoencoder.fit(train_data, train_data, 
-                        np.tile(all_masks[state][0].reshape([1,-1]),[x.shape[0],1]),
-                        np.tile(all_masks[state][1].reshape([1,-1]),[x.shape[1],1]),
-                        np.tile(all_masks[state][2].reshape([1,-1]),[x.shape[2],1]),
-                        np.tile(all_masks[state][3].reshape([1,-1]),[x.shape[3],1]),
-                        np.tile(all_masks[state][4].reshape([1,-1]),[x.shape[4],1]),
-                        np.tile(all_masks[state][5].reshape([1,-1]),[x.shape[5],1]),
-                        np.tile(all_masks[state][6].reshape([1,-1]),[x.shape[6],1]),
+        state = np.random.randint(0,20)
+        autoencoder.fit(x=[train_data, 
+                          np.reshape(all_masks[state][0], (1,4,5)),
+                          np.reshape(all_masks[state][1], (1,5,5)),
+                          np.reshape(all_masks[state][2], (1,5,5)),
+                          np.reshape(all_masks[state][3], (1,5,5)),
+                          np.reshape(all_masks[state][4], (1,5,5)),
+                          np.reshape(all_masks[state][5], (1,5,5)),
+                          np.reshape(all_masks[state][6], (1,5,4))],
+                        y=[train_data],
                         epochs=1,
                         batch_size=20,
                         shuffle=True,
-                        validation_data=(valid_data, valid_data),
+                        #validation_data=(valid_data, valid_data),
                         #callbacks=[reassign_mask],
                         verbose=1)
     
