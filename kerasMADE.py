@@ -6,6 +6,7 @@ This is a temporary script file.
 """
 
 import numpy as np
+import keras
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
 from keras.models import Model
@@ -88,19 +89,27 @@ class MaskedDenseLayer(Layer):
 
     def call(self, l):
         self.x = l[0]
-        self._mask = l[1]
+        self._mask = l[1][1]
+        print('self._mask', self._mask)
         #print('x:', x)
-        print('kernel:', self.kernel)
         #print('dot result:', K.dot(x, self.kernel))
+        kernel_shape = K.shape(self.kernel).eval(session=K.get_session())
+        #mask_shape = K.shape(self._mask).eval(session=K.get_session())
+        #print('khar')
+        
+        #tiled_kernel = K.tile(K.reshape(self.kernel, [1, kernel_shape[0], kernel_shape[1]]), [20, 1, 1])
+        #print('kernel:', K.shape(self.kernel).eval(session=K.get_session()))
         masked = Multiply()([self.kernel, self._mask])
         #masked = Multiply()([self.kernel, packed_mask])
-        #print('masked:', K.eval(masked))
+        print('masked:', masked)
+        #print('x:', self.x)
         self._output = K.dot(self.x, masked)
+        print('output:', self._output)
         return self._activation(self._output)
 
     
     def compute_output_shape(self, input_shape):
-        return input_shape[0] + (self.output_dim,)
+        return (input_shape[0][0], self.output_dim)
 
     
 def main():
@@ -116,20 +125,20 @@ def main():
     
     num_of_all_masks = 20
     num_of_hlayer = 6
-    hlayer_size = 5
+    hlayer_size = 100
     graph_size = 4
     
     all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
     
     input_layer = Input(shape=(4,))
 
-    mask_1 = Input( shape = (graph_size , hlayer_size) )
-    mask_2 = Input( shape = (hlayer_size , hlayer_size) )
-    mask_3 = Input( shape = (hlayer_size , hlayer_size) )
-    mask_4 = Input( shape = (hlayer_size , hlayer_size) )
-    mask_5 = Input( shape = (hlayer_size , hlayer_size) )
-    mask_6 = Input( shape = (hlayer_size , hlayer_size) )
-    mask_7 = Input( shape = (hlayer_size , graph_size) )
+    mask_1 = Input(shape = (graph_size , hlayer_size))
+    mask_2 = Input(shape = (hlayer_size , hlayer_size))
+    mask_3 = Input(shape = (hlayer_size , hlayer_size))
+    mask_4 = Input(shape = (hlayer_size , hlayer_size))
+    mask_5 = Input(shape = (hlayer_size , hlayer_size))
+    mask_6 = Input(shape = (hlayer_size , hlayer_size))
+    mask_7 = Input(shape = (hlayer_size , graph_size))
 
     
     hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
@@ -139,29 +148,31 @@ def main():
     hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer4, mask_5] )
     hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer5, mask_6] )
     output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer6, mask_7] )
+    
     autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
                         mask_4, mask_5, mask_6, mask_7], outputs=[output_layer])
+    
     autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
     #reassign_mask = ReassignMask()
     
-    for i in range(0, num_of_all_masks):
+    for i in range(0, 100):
         state = np.random.randint(0,20)
         autoencoder.fit(x=[train_data, 
-                          np.tile(np.reshape(all_masks[state][0], (-1,4,5)), [300, 1, 1]),
-                          np.tile(np.reshape(all_masks[state][1], (-1,5,5)), [300, 1, 1]),
-                          np.tile(np.reshape(all_masks[state][2], (-1,5,5)), [300, 1, 1]),
-                          np.tile(np.reshape(all_masks[state][3], (-1,5,5)), [300, 1, 1]),
-                          np.tile(np.reshape(all_masks[state][4], (-1,5,5)), [300, 1, 1]),
-                          np.tile(np.reshape(all_masks[state][5], (-1,5,5)), [300, 1, 1]),
-                          np.tile(np.reshape(all_masks[state][6], (-1,5,4)), [300, 1, 1])],
+                          np.tile(all_masks[state][0], [300, 1, 1]),
+                          np.tile(all_masks[state][1], [300, 1, 1]),
+                          np.tile(all_masks[state][2], [300, 1, 1]),
+                          np.tile(all_masks[state][3], [300, 1, 1]),
+                          np.tile(all_masks[state][4], [300, 1, 1]),
+                          np.tile(all_masks[state][5], [300, 1, 1]),
+                          np.tile(all_masks[state][6], [300, 1, 1])],
                         y=[train_data],
-                        epochs=1,
+                        epochs=20,
                         batch_size=20,
                         shuffle=True,
                         #validation_data=(valid_data, valid_data),
                         #callbacks=[reassign_mask],
                         verbose=1)
-    
+        
     #for idx, layer in enumerate(autoencoder.layers):
         #print ("layer", idx, "= ", layer.get_weights)
 #    input_layer = Input(shape=(4,))
@@ -182,7 +193,16 @@ def main():
 #                        verbose=2)
     
     a = autoencoder.trainable_weights
-    b = autoencoder.predict(test_data)
+    b = autoencoder.predict([test_data, 
+                            np.tile(all_masks[state][0], [100, 1, 1]),
+                            np.tile(all_masks[state][1], [100, 1, 1]),
+                            np.tile(all_masks[state][2], [100, 1, 1]),
+                            np.tile(all_masks[state][3], [100, 1, 1]),
+                            np.tile(all_masks[state][4], [100, 1, 1]),
+                            np.tile(all_masks[state][5], [100, 1, 1]),
+                            np.tile(all_masks[state][6], [100, 1, 1])]
+                            )
+    print('the job done!')
 
 if __name__=='__main__':
     main()
