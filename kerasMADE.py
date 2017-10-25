@@ -14,6 +14,7 @@ from keras import backend as K
 from keras.layers import Input
 import keras.activations as activations
 from keras.layers.merge import Multiply
+from keras import optimizers
 
 state = np.random.randint(0,20)
 
@@ -117,10 +118,13 @@ def main():
         inputsize = dataset['inputsize']
         train_length = dataset['train_length']
         train_data = dataset['train_data']
+        train_data_probs = dataset['train_data_probs']
         valid_length = dataset['valid_length']
         valid_data = dataset['valid_data']
+        valid_data_probs = dataset['valid_data_probs']
         test_length = dataset['test_length']
         test_data = dataset['test_data']
+        test_data_probs = dataset['test_data_probs']
         params = dataset['params']
     
     num_of_all_masks = 20
@@ -152,22 +156,23 @@ def main():
     autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
                         mask_4, mask_5, mask_6, mask_7], outputs=[output_layer])
     
-    autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
+    AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
+    autoencoder.compile(optimizer=AE_adam, loss='binary_crossentropy')
     #reassign_mask = ReassignMask()
     
-    for i in range(0, 100):
+    for i in range(0, 10):
         state = np.random.randint(0,20)
         autoencoder.fit(x=[train_data, 
-                          np.tile(all_masks[state][0], [300, 1, 1]),
-                          np.tile(all_masks[state][1], [300, 1, 1]),
-                          np.tile(all_masks[state][2], [300, 1, 1]),
-                          np.tile(all_masks[state][3], [300, 1, 1]),
-                          np.tile(all_masks[state][4], [300, 1, 1]),
-                          np.tile(all_masks[state][5], [300, 1, 1]),
-                          np.tile(all_masks[state][6], [300, 1, 1])],
+                          np.tile(all_masks[state][0], [train_length, 1, 1]),
+                          np.tile(all_masks[state][1], [train_length, 1, 1]),
+                          np.tile(all_masks[state][2], [train_length, 1, 1]),
+                          np.tile(all_masks[state][3], [train_length, 1, 1]),
+                          np.tile(all_masks[state][4], [train_length, 1, 1]),
+                          np.tile(all_masks[state][5], [train_length, 1, 1]),
+                          np.tile(all_masks[state][6], [train_length, 1, 1])],
                         y=[train_data],
-                        epochs=20,
-                        batch_size=20,
+                        epochs=1,
+                        batch_size=50,
                         shuffle=True,
                         #validation_data=(valid_data, valid_data),
                         #callbacks=[reassign_mask],
@@ -192,7 +197,6 @@ def main():
 #                        validation_data=(valid_data, valid_data),
 #                        verbose=2)
     
-    a = autoencoder.trainable_weights
     b = autoencoder.predict([test_data, 
                             np.tile(all_masks[state][0], [100, 1, 1]),
                             np.tile(all_masks[state][1], [100, 1, 1]),
@@ -202,7 +206,11 @@ def main():
                             np.tile(all_masks[state][5], [100, 1, 1]),
                             np.tile(all_masks[state][6], [100, 1, 1])]
                             )
-    print('the job done!')
+    made_probs = K.prod(b, 1).eval(session=K.get_session())
+    print('made_probs', made_probs)
+    #tmp = made_probs  train_data_probs
+    KLs = np.sum(np.multiply(made_probs, np.log(np.divide(made_probs, test_data_probs))))
+    print('KL is:', KLs)
 
 if __name__=='__main__':
     main()
