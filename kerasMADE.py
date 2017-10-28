@@ -6,7 +6,6 @@ This is a temporary script file.
 """
 
 import numpy as np
-import keras
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
 from keras.models import Model
@@ -15,8 +14,6 @@ from keras.layers import Input
 import keras.activations as activations
 from keras.layers.merge import Multiply
 from keras import optimizers
-
-state = np.random.randint(0,20)
 
 #masking lambdaCallback
 class ReassignMask(Callback):
@@ -114,6 +111,9 @@ class MaskedDenseLayer(Layer):
 
     
 def main():
+    
+    np.random.seed(4321)
+    
     with np.load('datasets/simple_tree.npz') as dataset:
         inputsize = dataset['inputsize']
         train_length = dataset['train_length']
@@ -160,7 +160,8 @@ def main():
     autoencoder.compile(optimizer=AE_adam, loss='binary_crossentropy')
     #reassign_mask = ReassignMask()
     
-    for i in range(0, 10):
+    for i in range(0, 100):
+        np.random.seed(1234)
         state = np.random.randint(0,20)
         autoencoder.fit(x=[train_data, 
                           np.tile(all_masks[state][0], [train_length, 1, 1]),
