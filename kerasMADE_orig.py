@@ -25,13 +25,16 @@ class SaveWeights(Callback):
     def on_epoch_end(self, epoch, logs):
         for idx, layer in enumerate(model.layers):
             print ("layer", idx, "= ", layerlayer.get_wights)
-            
+                
 
 def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size):
     all_masks = []
     for i in range(0,num_of_all_masks):
         #generating subsets as 3d matrix 
-        subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
+        #subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
+        
+        labels = np.random.randint(0, 4, (num_of_hlayer, hlayer_size))
+
         
         #generating masks as 3d matrix
         #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
@@ -39,10 +42,9 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         
         #first layer mask
         mask = np.zeros([graph_size, hlayer_size])
-        first_sets = np.eye(graph_size, dtype=int)
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
-                if all( (subsets[0][j] - first_sets[k]) >=0 ):
+                if (labels[0][j] >= k):
                     mask[k][j] = 1
         masks.append(mask)
         
@@ -51,16 +53,16 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
             mask = np.zeros([hlayer_size, hlayer_size])
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
-                    if all( (subsets[i][j] - subsets[i-1][k]) >= 0):
+                    if (labels[i][j] >= labels[i-1][k]):
                         mask[k][j] = 1
             masks.append(mask)
         
         #last layer mask
         mask = np.zeros([hlayer_size, graph_size])
-        last_sets = np.random.randint(0,2,(graph_size, graph_size))
+        last_layer_label = np.random.randint(0, 4, graph_size)
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
-                if all( (last_sets[j] - subsets[num_of_hlayer-1][k]) >=0 ):
+                if (last_layer_label[j] >= labels[-1][k]):
                     mask[k][j] = 1
         masks.append(mask)
         all_masks.append(masks)
@@ -89,9 +91,11 @@ class MaskedDenseLayer(Layer):
         self.x = l[0]
         self._mask = l[1][1]
         print('self._mask', self._mask)
+        #print('x:', x)
         #print('dot result:', K.dot(x, self.kernel))
         kernel_shape = K.shape(self.kernel).eval(session=K.get_session())
         #mask_shape = K.shape(self._mask).eval(session=K.get_session())
+        #print('khar')
         
         #tiled_kernel = K.tile(K.reshape(self.kernel, [1, kernel_shape[0], kernel_shape[1]]), [20, 1, 1])
         #print('kernel:', K.shape(self.kernel).eval(session=K.get_session()))
@@ -109,7 +113,7 @@ class MaskedDenseLayer(Layer):
 
     
 def main():
-    
+     
     np.random.seed(4125)
     
     with np.load('datasets/simple_tree.npz') as dataset:
@@ -133,7 +137,7 @@ def main():
     fit_iter = 300
     
     KLs = []
-    for ne in range(0, num_of_exec):
+    for ne in range(0, num_of_exec):   
         all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         
         input_layer = Input(shape=(4,))
@@ -211,16 +215,15 @@ def main():
         made_probs = K.prod(b, 1).eval(session=K.get_session())
         print('made_probs', made_probs)
         #tmp = made_probs  train_data_probs
-        
         KL = np.sum(np.multiply(made_probs, np.log(np.divide(made_probs, test_data_probs))))
         KLs.append(KL)
-        
+    
     mean = sum(KLs)/num_of_exec
     variance = np.sum(np.square([x - mean for x in KLs]))
       
     print('KLs:', KLs)
     print('mean:', mean)
     print('variance:', variance)
-    
+
 if __name__=='__main__':
     main()
