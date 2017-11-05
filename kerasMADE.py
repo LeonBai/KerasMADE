@@ -58,6 +58,10 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         #last layer mask
         mask = np.zeros([hlayer_size, graph_size])
         last_sets = np.random.randint(0,2,(graph_size, graph_size))
+        last_sets[0] = [1, 1, 0, 0]
+        last_sets[1] = [0, 1, 1, 0]
+        last_sets[2] = [0, 1, 0, 1]
+        last_sets[3] = [0, 0, 0, 0]
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
                 if all( (last_sets[j] - subsets[num_of_hlayer-1][k]) >=0 ):
