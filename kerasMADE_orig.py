@@ -32,37 +32,40 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
     for i in range(0,num_of_all_masks):
         #generating subsets as 3d matrix 
         #subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
-        
-        labels = np.random.randint(0, 4, (num_of_hlayer, hlayer_size))
 
-        
+        labels = np.zeros([num_of_hlayer, hlayer_size])
+        min_label = 0
+        for i in range(num_of_hlayer):
+            labels[i][:] = np.random.randint(min_label, graph_size, (hlayer_size))
+            min_label = np.amin(labels[i])
         #generating masks as 3d matrix
         #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
-        masks = []
         
+        masks = []
+        pi = np.random.permutation(graph_size)
         #first layer mask
         mask = np.zeros([graph_size, hlayer_size])
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
-                if (labels[0][j] >= k):
+                if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-4)):
                     mask[k][j] = 1
         masks.append(mask)
         
-        #hidden layers mask
+        #hidden layers mask   
         for i in range(1, num_of_hlayer):
             mask = np.zeros([hlayer_size, hlayer_size])
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
-                    if (labels[i][j] >= labels[i-1][k]):
+                    if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-4)):
                         mask[k][j] = 1
             masks.append(mask)
         
         #last layer mask
         mask = np.zeros([hlayer_size, graph_size])
-        last_layer_label = np.random.randint(0, 4, graph_size)
+        #last_layer_label = np.random.randint(0, 4, graph_size)
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
-                if (last_layer_label[j] >= labels[-1][k]):
+                if (j > labels[-1][k]):
                     mask[k][j] = 1
         masks.append(mask)
         all_masks.append(masks)
@@ -116,8 +119,10 @@ def main():
      
     np.random.seed(4125)
     
-    with np.load('datasets/simple_tree.npz') as dataset:
-        inputsize = dataset['inputsize']
+    with np.load('datasets/grid_4x4_3000.npz') as dataset:
+        height = dataset['height']
+        width = dataset['width']
+        #input_size = dataset['inputsize']
         train_length = dataset['train_length']
         train_data = dataset['train_data']
         train_data_probs = dataset['train_data_probs']
@@ -129,18 +134,18 @@ def main():
         test_data_probs = dataset['test_data_probs']
         params = dataset['params']
     
-    num_of_exec = 50
+    num_of_exec = 10
     num_of_all_masks = 20
     num_of_hlayer = 6
     hlayer_size = 100
-    graph_size = 4
+    graph_size = height.tolist()*width.tolist()
     fit_iter = 300
     
     KLs = []
     for ne in range(0, num_of_exec):   
         all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         
-        input_layer = Input(shape=(4,))
+        input_layer = Input(shape=(graph_size,))
     
         mask_1 = Input(shape = (graph_size , hlayer_size))
         mask_2 = Input(shape = (hlayer_size , hlayer_size))
@@ -214,12 +219,13 @@ def main():
                                 )
         made_probs = K.prod(b, 1).eval(session=K.get_session())
         print('made_probs', made_probs)
+        print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
         KL = np.sum(np.multiply(made_probs, np.log(np.divide(made_probs, test_data_probs))))
         KLs.append(KL)
     
     mean = sum(KLs)/num_of_exec
-    variance = np.sum(np.square([x - mean for x in KLs]))
+    variance = 1.0/len(KLs) * np.sum(np.square([x - mean for x in KLs]))
       
     print('KLs:', KLs)
     print('mean:', mean)
