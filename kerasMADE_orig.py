@@ -14,6 +14,7 @@ from keras.layers import Input
 import keras.activations as activations
 from keras.layers.merge import Multiply
 from keras import optimizers
+import tensorflow as tf
 
 #masking lambdaCallback
 class ReassignMask(Callback):
@@ -47,7 +48,7 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         mask = np.zeros([graph_size, hlayer_size])
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
-                if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-4)):
+                if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-4)):
                     mask[k][j] = 1
         masks.append(mask)
         
@@ -56,7 +57,7 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
             mask = np.zeros([hlayer_size, hlayer_size])
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
-                    if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-4)):
+                    if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-4)):
                         mask[k][j] = 1
             masks.append(mask)
         
@@ -65,7 +66,7 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         #last_layer_label = np.random.randint(0, 4, graph_size)
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
-                if (j > labels[-1][k]):
+                if (j > labels[-1][k]): #and (j >= labels[-1][k]-4)):
                     mask[k][j] = 1
         masks.append(mask)
         all_masks.append(masks)
@@ -90,9 +91,32 @@ class MaskedDenseLayer(Layer):
                                       trainable=True)
         super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
+    
+    def call(self, l):
+        self.x = l[0]
+        self._mask = l[1]
+        bs = K.shape(self.x)[0]       
+        ks = K.shape(self.kernel)
+        masked_flat = Multiply()([K.tile(K.reshape(self.kernel,[1,ks[0]*ks[1]]),[bs,1]), K.reshape(self._mask,[bs,ks[0]*ks[1]])])        
+        masked = K.reshape(masked_flat, [bs, ks[0], ks[1]])
+        self._output = tf.matmul(K.reshape(self.x,[bs,1,ks[0]]), masked)
+        return self._activation(K.reshape(self._output,[bs,self.output_dim]))
+        
+    '''
     def call(self, l):
         self.x = l[0]
         self._mask = l[1][1]
+        
+        self._mask_all = l[1]
+        bs = K.shape(self.x)[0]       
+        ks = K.shape(self.kernel)
+        
+        masked_flat = Multiply()([K.tile(K.reshape(self.kernel,[1,-1]),[bs,1]), K.reshape(self._mask,[bs,-1])])        
+        masked_all = K.reshape(masked_flat, [bs, ks[0], ks[1]])
+        output = K.dot(K.reshape(self.x,[bs,1,-1]), masked_all)
+        a = self._activation(output)
+        
+        
         print('self._mask', self._mask)
         #print('x:', x)
         #print('dot result:', K.dot(x, self.kernel))
@@ -109,7 +133,7 @@ class MaskedDenseLayer(Layer):
         self._output = K.dot(self.x, masked)
         print('output:', self._output)
         return self._activation(self._output)
-
+    '''
     
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
@@ -119,7 +143,7 @@ def main():
      
     np.random.seed(4125)
     
-    with np.load('datasets/grid_4x4_3000.npz') as dataset:
+    with np.load('datasets/grid_4x4_300.npz') as dataset:
         height = dataset['height']
         width = dataset['width']
         #input_size = dataset['inputsize']
@@ -170,19 +194,24 @@ def main():
         AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
         autoencoder.compile(optimizer=AE_adam, loss='binary_crossentropy')
         #reassign_mask = ReassignMask()
+        reped_td = np.tile(train_data, [num_of_all_masks, 1])
         
-        for i in range(0, fit_iter):
+        masks = [None]*(num_of_hlayer+1)
+        for i in range(num_of_hlayer+1):
+            for j in range(num_of_all_masks):
+                tmp = np.tile(all_masks[j][i],[train_length,1,1])
+                if j == 0:
+                    masks[i] = tmp
+                else:    
+                    masks[i] = np.concatenate([masks[i], tmp], axis=0)
+                
+        for i in range(0, 1):
             state = np.random.randint(0,num_of_all_masks)
-            autoencoder.fit(x=[train_data, 
-                              np.tile(all_masks[state][0], [train_length, 1, 1]),
-                              np.tile(all_masks[state][1], [train_length, 1, 1]),
-                              np.tile(all_masks[state][2], [train_length, 1, 1]),
-                              np.tile(all_masks[state][3], [train_length, 1, 1]),
-                              np.tile(all_masks[state][4], [train_length, 1, 1]),
-                              np.tile(all_masks[state][5], [train_length, 1, 1]),
-                              np.tile(all_masks[state][6], [train_length, 1, 1])],
-                            y=[train_data],
-                            epochs=1,
+            autoencoder.fit(x=[reped_td, 
+                              masks[0], masks[1], masks[2],
+                              masks[3], masks[4], masks[5], masks[6]],
+                            y=[reped_td],
+                            epochs=15,
                             batch_size=50,
                             shuffle=True,
                             #validation_data=(valid_data, valid_data),
@@ -218,8 +247,8 @@ def main():
                                 np.tile(all_masks[state][6], [test_length, 1, 1])]
                                 )
         made_probs = K.prod(b, 1).eval(session=K.get_session())
-        print('made_probs', made_probs)
-        print('test_probs', test_data_probs)
+        #print('made_probs', made_probs)
+        #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
         KL = np.sum(np.multiply(made_probs, np.log(np.divide(made_probs, test_data_probs))))
         KLs.append(KL)
