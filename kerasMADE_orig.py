@@ -143,7 +143,7 @@ def main():
      
     np.random.seed(4125)
     
-    with np.load('datasets/grid_4x4_300.npz') as dataset:
+    with np.load('datasets/grid_4x4_100.npz') as dataset:
         height = dataset['height']
         width = dataset['width']
         #input_size = dataset['inputsize']
@@ -158,12 +158,14 @@ def main():
         test_data_probs = dataset['test_data_probs']
         params = dataset['params']
     
-    num_of_exec = 10
-    num_of_all_masks = 20
+    num_of_exec = 1
+    num_of_all_masks = 10
     num_of_hlayer = 6
     hlayer_size = 100
     graph_size = height.tolist()*width.tolist()
-    fit_iter = 300
+    fit_iter = 1
+    num_of_epochs = 10
+    bach_s = 50
     
     KLs = []
     for ne in range(0, num_of_exec):   
@@ -194,8 +196,7 @@ def main():
         AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
         autoencoder.compile(optimizer=AE_adam, loss='binary_crossentropy')
         #reassign_mask = ReassignMask()
-        reped_td = np.tile(train_data, [num_of_all_masks, 1])
-        
+        reped_traindata = np.tile(train_data, [num_of_all_masks, 1])
         masks = [None]*(num_of_hlayer+1)
         for i in range(num_of_hlayer+1):
             for j in range(num_of_all_masks):
@@ -205,52 +206,43 @@ def main():
                 else:    
                     masks[i] = np.concatenate([masks[i], tmp], axis=0)
                 
-        for i in range(0, 1):
+        for i in range(0, fit_iter):
             state = np.random.randint(0,num_of_all_masks)
-            autoencoder.fit(x=[reped_td, 
+            autoencoder.fit(x=[reped_traindata, 
                               masks[0], masks[1], masks[2],
                               masks[3], masks[4], masks[5], masks[6]],
-                            y=[reped_td],
-                            epochs=15,
-                            batch_size=50,
+                            y=[reped_traindata],
+                            epochs=num_of_epochs,
+                            batch_size=bach_s,
                             shuffle=True,
                             #validation_data=(valid_data, valid_data),
                             #callbacks=[reassign_mask],
                             verbose=1)
             
-        #for idx, layer in enumerate(autoencoder.layers):
-            #print ("layer", idx, "= ", layer.get_weights)
-    #    input_layer = Input(shape=(4,))
-    #    encoded = Dense(3, activation='relu')(input_layer)
-    #    encoded = Dense(3, activation='relu')(encoded)
-    #    encoded = Dense(3, activation='relu')(encoded)
-    #
-    #    decoded = Dense(3, activation='relu')(encoded)
-    #    decoded = Dense(3, activation='relu')(decoded)
-    #    decoded = Dense(4, activation='sigmoid')(decoded)
-    #    autoencoder = Model(input_layer, decoded)
-    #    autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
-    #    autoencoder.fit(train_data, train_data,
-    #                        epochs=100,
-    #                        batch_size=20,
-    #                        shuffle=True,
-    #                        validation_data=(valid_data, valid_data),
-    #                        verbose=2)
+        #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
         
-        b = autoencoder.predict([test_data, 
-                                np.tile(all_masks[state][0], [test_length, 1, 1]),
-                                np.tile(all_masks[state][1], [test_length, 1, 1]),
-                                np.tile(all_masks[state][2], [test_length, 1, 1]),
-                                np.tile(all_masks[state][3], [test_length, 1, 1]),
-                                np.tile(all_masks[state][4], [test_length, 1, 1]),
-                                np.tile(all_masks[state][5], [test_length, 1, 1]),
-                                np.tile(all_masks[state][6], [test_length, 1, 1])]
+        all_avg_probs = np.array([])
+        for i in range(test_length):
+            made_probs = np.array([])
+            for j in range(num_of_all_masks):
+                b = autoencoder.predict([test_data[i].reshape(1, 16), 
+                              all_masks[j][0].reshape(1, graph_size, hlayer_size),
+                              all_masks[j][1].reshape(1, hlayer_size, hlayer_size), 
+                              all_masks[j][2].reshape(1, hlayer_size, hlayer_size), 
+                              all_masks[j][3].reshape(1, hlayer_size, hlayer_size), 
+                              all_masks[j][4].reshape(1, hlayer_size, hlayer_size), 
+                              all_masks[j][5].reshape(1, hlayer_size, hlayer_size), 
+                              all_masks[j][6].reshape(1, hlayer_size, graph_size)]
                                 )
-        made_probs = K.prod(b, 1).eval(session=K.get_session())
+                made_prob = np.prod(b, 1)
+                made_probs = np.append(made_probs, made_prob)
+            avg_prob = np.mean(made_probs)
+            all_avg_probs = np.append(all_avg_probs, avg_prob)
+            
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
-        KL = np.sum(np.multiply(made_probs, np.log(np.divide(made_probs, test_data_probs))))
+        KL = np.sum(np.multiply(all_avg_probs, np.log(np.divide(all_avg_probs, test_data_probs))))
         KLs.append(KL)
     
     mean = sum(KLs)/num_of_exec
