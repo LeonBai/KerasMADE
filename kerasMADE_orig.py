@@ -97,8 +97,9 @@ class MaskedDenseLayer(Layer):
         self._mask = l[1]
         bs = K.shape(self.x)[0]       
         ks = K.shape(self.kernel)
-        masked_flat = Multiply()([K.tile(K.reshape(self.kernel,[1,ks[0]*ks[1]]),[bs,1]), K.reshape(self._mask,[bs,ks[0]*ks[1]])])        
-        masked = K.reshape(masked_flat, [bs, ks[0], ks[1]])
+        #masked_flat = Multiply()([K.tile(K.reshape(self.kernel,[1,ks[0]*ks[1]]),[bs,1]), K.reshape(self._mask,[bs,ks[0]*ks[1]])])        
+        #masked = K.reshape(masked_flat, [bs, ks[0], ks[1]])
+        masked = tf.multiply(K.tile(K.reshape(self.kernel,[1,ks[0],ks[1]]),[bs,1,1]), self._mask)
         self._output = tf.matmul(K.reshape(self.x,[bs,1,ks[0]]), masked)
         return self._activation(K.reshape(self._output,[bs,self.output_dim]))
         
@@ -236,6 +237,7 @@ def main():
                                 )
                 made_prob = np.prod(b, 1)
                 made_probs = np.append(made_probs, made_prob)
+            print('i', i)
             avg_prob = np.mean(made_probs)
             all_avg_probs = np.append(all_avg_probs, avg_prob)
             
