@@ -4,7 +4,7 @@ Spyder Editor
 
 This is a temporary script file.
 """
-
+import sys
 import numpy as np
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
@@ -16,19 +16,73 @@ from keras.layers.merge import Multiply
 from keras import optimizers
 import tensorflow as tf
 
-#masking lambdaCallback
-class ReassignMask(Callback):
-    def on_epoch_end(self, epoch, logs):
-        global state 
-        state = np.random.randint(0,20)
-        
-class SaveWeights(Callback):
-    def on_epoch_end(self, epoch, logs):
-        for idx, layer in enumerate(model.layers):
-            print ("layer", idx, "= ", layerlayer.get_wights)
-                
+train_end_epochs = []
 
-def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size):
+class MyEarlyStopping(Callback):
+    def __init__(self, monitor='val_loss',
+                 min_delta=0, patience=0, verbose=0, mode='auto'):
+        super(MyEarlyStopping, self).__init__()
+
+        self.monitor = monitor
+        self.patience = patience
+        self.verbose = verbose
+        self.min_delta = min_delta
+        self.wait = 0
+        self.stopped_epoch = 0
+
+        if mode not in ['auto', 'min', 'max']:
+            warnings.warn('EarlyStopping mode %s is unknown, '
+                          'fallback to auto mode.' % mode,
+                          RuntimeWarning)
+            mode = 'auto'
+
+        if mode == 'min':
+            self.monitor_op = np.less
+        elif mode == 'max':
+            self.monitor_op = np.greater
+        else:
+            if 'acc' in self.monitor:
+                self.monitor_op = np.greater
+            else:
+                self.monitor_op = np.less
+
+        if self.monitor_op == np.greater:
+            self.min_delta *= 1
+        else:
+            self.min_delta *= -1
+
+    def on_train_begin(self, logs=None):
+        # Allow instances to be re-used
+        self.wait = 0
+        self.stopped_epoch = 0
+        self.best = np.Inf if self.monitor_op == np.less else -np.Inf
+
+    def on_epoch_end(self, epoch, logs=None):
+        current = logs.get(self.monitor)
+        if current is None:
+            warnings.warn(
+                'Early stopping conditioned on metric `%s` '
+                'which is not available. Available metrics are: %s' %
+                (self.monitor, ','.join(list(logs.keys()))), RuntimeWarning
+            )
+            return
+        if self.monitor_op(current - self.min_delta, self.best):
+            self.best = current
+            self.wait = 0
+        else:
+            self.wait += 1
+            if self.wait >= self.patience:
+                self.stopped_epoch = epoch
+                self.model.stop_training = True
+
+    def on_train_end(self, logs=None):
+        global train_end_epochs
+        train_end_epochs.append(self.stopped_epoch)
+        if self.stopped_epoch > 0 and self.verbose > 0:
+            print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
+
+        
+def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo):
     all_masks = []
     for i in range(0,num_of_all_masks):
         #generating subsets as 3d matrix 
@@ -48,8 +102,12 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         mask = np.zeros([graph_size, hlayer_size])
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
-                if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-4)):
-                    mask[k][j] = 1
+                if (algo == 'orig'):
+                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-4)):
+                        mask[k][j] = 1
+                else:
+                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-4)):
+                        mask[k][j] = 1
         masks.append(mask)
         
         #hidden layers mask   
@@ -57,8 +115,12 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
             mask = np.zeros([hlayer_size, hlayer_size])
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
-                    if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-4)):
-                        mask[k][j] = 1
+                    if (algo == 'orig'):
+                        if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-4)):
+                            mask[k][j] = 1
+                    else:
+                        if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-4)):
+                            mask[k][j] = 1
             masks.append(mask)
         
         #last layer mask
@@ -66,8 +128,12 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         #last_layer_label = np.random.randint(0, 4, graph_size)
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
-                if (j > labels[-1][k]): #and (j >= labels[-1][k]-4)):
-                    mask[k][j] = 1
+                if (algo == 'orig'):
+                    if (j > labels[-1][k]): #and (j >= labels[-1][k]-4)):
+                        mask[k][j] = 1
+                else:
+                    if ((j > labels[-1][k]) and (j >= labels[-1][k]-4)):
+                        mask[k][j] = 1
         masks.append(mask)
         all_masks.append(masks)
         
@@ -141,10 +207,8 @@ class MaskedDenseLayer(Layer):
 
     
 def main():
-     
-    np.random.seed(4125)
     
-    with np.load('datasets/grid_4x4_100.npz') as dataset:
+    with np.load(sys.argv[1]) as dataset:
         height = dataset['height']
         width = dataset['width']
         #input_size = dataset['inputsize']
@@ -158,99 +222,151 @@ def main():
         test_data = dataset['test_data']
         test_data_probs = dataset['test_data_probs']
         params = dataset['params']
-    
-    num_of_exec = 1
+            
+    np.random.seed(4125) 
+    AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
+    num_of_exec = 2
     num_of_all_masks = 10
-    num_of_hlayer = 6
-    hlayer_size = 100
+    num_of_hlayer = 2
+    hlayer_size = 50
     graph_size = height.tolist()*width.tolist()
     fit_iter = 1
-    num_of_epochs = 10
-    bach_s = 50
-    
-    KLs = []
+    num_of_epochs = 1000
+    batch_s = 50
+    algorithm = sys.argv[1]
+    print ('algorithm', algorithm)
+    optimizer = AE_adam
+    patience = 20
+        
+    LLs = []
     for ne in range(0, num_of_exec):   
-        all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
+        all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         
         input_layer = Input(shape=(graph_size,))
+        if (num_of_hlayer == 2): 
+            mask_1 = Input(shape = (graph_size , hlayer_size))
+            mask_2 = Input(shape = (hlayer_size , hlayer_size))
+            mask_3 = Input(shape = (hlayer_size , graph_size))
+        else:
+            mask_1 = Input(shape = (graph_size , hlayer_size))
+            mask_2 = Input(shape = (hlayer_size , hlayer_size))
+            mask_3 = Input(shape = (hlayer_size , hlayer_size))
+            mask_4 = Input(shape = (hlayer_size , hlayer_size))
+            mask_5 = Input(shape = (hlayer_size , hlayer_size))
+            mask_6 = Input(shape = (hlayer_size , hlayer_size))
+            mask_7 = Input(shape = (hlayer_size , graph_size))
     
-        mask_1 = Input(shape = (graph_size , hlayer_size))
-        mask_2 = Input(shape = (hlayer_size , hlayer_size))
-        mask_3 = Input(shape = (hlayer_size , hlayer_size))
-        mask_4 = Input(shape = (hlayer_size , hlayer_size))
-        mask_5 = Input(shape = (hlayer_size , hlayer_size))
-        mask_6 = Input(shape = (hlayer_size , hlayer_size))
-        mask_7 = Input(shape = (hlayer_size , graph_size))
-    
-        
-        hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
-        hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
-        hlayer3 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer2, mask_3] )
-        hlayer4 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer3, mask_4] )
-        hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer4, mask_5] )
-        hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer5, mask_6] )
-        output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer6, mask_7] )
-        
-        autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
+        if (num_of_hlayer == 2):
+            hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
+            hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
+            output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer2, mask_3] )
+        else:
+            hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
+            hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
+            hlayer3 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer2, mask_3] )
+            hlayer4 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer3, mask_4] )
+            hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer4, mask_5] )
+            hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer5, mask_6] )
+            output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer6, mask_7] )
+        if (num_of_hlayer == 6):
+            autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
                             mask_4, mask_5, mask_6, mask_7], outputs=[output_layer])
+        else:
+            autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3], outputs=[output_layer])
         
-        AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-        autoencoder.compile(optimizer=AE_adam, loss='binary_crossentropy')
+        autoencoder.compile(optimizer=optimizer, loss='binary_crossentropy')
         #reassign_mask = ReassignMask()
+        early_stop = MyEarlyStopping(monitor='val_loss', min_delta=0, patience=patience, verbose=1, mode='auto')
+        
         reped_traindata = np.tile(train_data, [num_of_all_masks, 1])
-        masks = [None]*(num_of_hlayer+1)
+        reped_validdata = np.tile(valid_data, [num_of_all_masks, 1])
+        
+        masks_train = [None]*(num_of_hlayer+1)
         for i in range(num_of_hlayer+1):
             for j in range(num_of_all_masks):
                 tmp = np.tile(all_masks[j][i],[train_length,1,1])
                 if j == 0:
-                    masks[i] = tmp
+                    masks_train[i] = tmp
                 else:    
-                    masks[i] = np.concatenate([masks[i], tmp], axis=0)
+                    masks_train[i] = np.concatenate([masks_train[i], tmp], axis=0)
+                    
+        masks_valid = [None]*(num_of_hlayer+1)
+        for i in range(num_of_hlayer+1):
+            for j in range(num_of_all_masks):
+                tmp = np.tile(all_masks[j][i],[valid_length,1,1])
+                if j == 0:
+                    masks_valid[i] = tmp
+                else:    
+                    masks_valid[i] = np.concatenate([masks_valid[i], tmp], axis=0)
                 
         for i in range(0, fit_iter):
             state = np.random.randint(0,num_of_all_masks)
-            autoencoder.fit(x=[reped_traindata, 
-                              masks[0], masks[1], masks[2],
-                              masks[3], masks[4], masks[5], masks[6]],
-                            y=[reped_traindata],
-                            epochs=num_of_epochs,
-                            batch_size=bach_s,
-                            shuffle=True,
-                            #validation_data=(valid_data, valid_data),
-                            #callbacks=[reassign_mask],
-                            verbose=1)
-            
+            if (num_of_hlayer == 6):
+                autoencoder.fit(x=[reped_traindata, 
+                                  masks_train[0], masks_train[1], masks_train[2],
+                                  masks_train[3], masks_train[4], masks_train[5], masks_train[6]],
+                                  y=[reped_traindata],
+                                  epochs=num_of_epochs,
+                                  batch_size=batch_s,
+                                  shuffle=True,
+                                  validation_data=([reped_validdata,
+                                                    masks_valid[0], masks_valid[1], masks_valid[2],
+                                                    masks_valid[3], masks_valid[4], masks_valid[5], masks_valid[6]],
+                                                    [reped_validdata]),
+                                  callbacks=[early_stop],
+                                  verbose=1)
+            else:
+                autoencoder.fit(x=[reped_traindata, 
+                                  masks_train[0], masks_train[1], masks_train[2]],
+                                  y=[reped_traindata],
+                                  epochs=num_of_epochs,
+                                  batch_size=batch_s,
+                                  shuffle=True,
+                                  validation_data=([reped_validdata,
+                                                    masks_valid[0], masks_valid[1], masks_valid[2]],
+                                                    [reped_validdata]),
+                                  callbacks=[early_stop],
+                                  verbose=1)
+
         #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
-        
-        all_avg_probs = np.array([])
-        for i in range(test_length):
-            made_probs = np.array([])
-            for j in range(num_of_all_masks):
-                b = autoencoder.predict([test_data[i].reshape(1, 16), 
-                              all_masks[j][0].reshape(1, graph_size, hlayer_size),
-                              all_masks[j][1].reshape(1, hlayer_size, hlayer_size), 
-                              all_masks[j][2].reshape(1, hlayer_size, hlayer_size), 
-                              all_masks[j][3].reshape(1, hlayer_size, hlayer_size), 
-                              all_masks[j][4].reshape(1, hlayer_size, hlayer_size), 
-                              all_masks[j][5].reshape(1, hlayer_size, hlayer_size), 
-                              all_masks[j][6].reshape(1, hlayer_size, graph_size)]
-                                )
-                made_prob = np.prod(b, 1)
-                made_probs = np.append(made_probs, made_prob)
-            print('i', i)
-            avg_prob = np.mean(made_probs)
-            all_avg_probs = np.append(all_avg_probs, avg_prob)
+        made_probs = np.zeros([num_of_all_masks, test_length])
+        for j in range(num_of_all_masks):
+            if (num_of_hlayer == 6):
+                made_predict = autoencoder.predict([test_data, 
+                                                    np.tile(all_masks[j][0], [test_length, 1, 1]),#.reshape(1, graph_size, hlayer_size),
+                                                    np.tile(all_masks[j][1], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
+                                                    np.tile(all_masks[j][2], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
+                                                    np.tile(all_masks[j][3], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
+                                                    np.tile(all_masks[j][4], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
+                                                    np.tile(all_masks[j][5], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
+                                                    np.tile(all_masks[j][6], [test_length, 1, 1])]#.reshape(1, hlayer_size, graph_size)]
+                                                    )
+            else:
+                 made_predict = autoencoder.predict([test_data, 
+                                                    np.tile(all_masks[j][0], [test_length, 1, 1]),#.reshape(1, graph_size, hlayer_size),
+                                                    np.tile(all_masks[j][1], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
+                                                    np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
+                                                    )
+
+            made_prob = np.prod(made_predict, 1)
+            made_probs[j][:] = made_prob
+                  
+        all_avg_probs = np.mean(made_probs, axis=0)
             
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
-        KL = np.sum(np.multiply(all_avg_probs, np.log(np.divide(all_avg_probs, test_data_probs))))
-        KLs.append(KL)
+        #KL = np.sum(np.multiply(all_avg_probs, np.log(np.divide(all_avg_probs, test_data_probs))))
+        NLL = -1*np.mean(np.log(all_avg_probs))
+        LLs.append(NLL)
     
-    mean = sum(KLs)/num_of_exec
-    variance = 1.0/len(KLs) * np.sum(np.square([x - mean for x in KLs]))
-      
-    print('KLs:', KLs)
+    mean = sum(LLs)/num_of_exec
+    variance = 1.0/len(LLs) * np.sum(np.square([x - mean for x in LLs]))
+    
+    global train_end_epochs
+    print(train_end_epochs)
+    print(np.mean(train_end_epochs))
+    print('LLs:', LLs)
     print('mean:', mean)
     print('variance:', variance)
 

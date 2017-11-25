@@ -4,7 +4,7 @@ Spyder Editor
 
 This is a temporary script file.
 """
-
+import sys
 import numpy as np
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
@@ -14,6 +14,7 @@ from keras.layers import Input
 import keras.activations as activations
 from keras.layers.merge import Multiply
 from keras import optimizers
+import itertools
 
 #masking lambdaCallback
 class ReassignMask(Callback):
@@ -27,12 +28,14 @@ class SaveWeights(Callback):
             print ("layer", idx, "= ", layerlayer.get_wights)
             
 
-def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size):
+def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, last_layer_sets, all_subsets):
     all_masks = []
     for i in range(0,num_of_all_masks):
         #generating subsets as 3d matrix 
-        subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
-        
+        subsets = np.zeros([num_of_hlayer, hlayer_size, graph_size])
+        for jj in range(0, num_of_hlayer):
+            for jjj in range(0, hlayer_size):
+                subsets[jj][jjj][:] = all_subsets[np.random.randint(0, all_subsets.shape[0])]
         #generating masks as 3d matrix
         #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
         masks = []
@@ -57,14 +60,9 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
         
         #last layer mask
         mask = np.zeros([hlayer_size, graph_size])
-        last_sets = np.random.randint(0,2,(graph_size, graph_size))
-        last_sets[0] = [1, 1, 0, 0]
-        last_sets[1] = [0, 1, 1, 0]
-        last_sets[2] = [0, 1, 0, 1]
-        last_sets[3] = [0, 0, 0, 0]
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
-                if all( (last_sets[j] - subsets[num_of_hlayer-1][k]) >=0 ):
+                if all( (last_layer_sets[j] - subsets[num_of_hlayer-1][k]) >=0 ):
                     mask[k][j] = 1
         masks.append(mask)
         all_masks.append(masks)
@@ -73,6 +71,37 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
     
     return all_masks
 
+# This function generates the cut set of each node due to its preceedings
+# for a grid graph
+def generate_lastlayer_sets(width, height):
+    last_layer_sets = np.zeros([width*height, width*height])
+    for i in range(0, width*height):
+        if (i/width) != 0:
+            begin_pos = (i/width-1)*width + (i%width)
+        else:
+            begin_pos = 0
+        last_layer_sets[i][begin_pos : i] = 1
+    return last_layer_sets
+
+#This function generates all subsets of cut sets
+def generate_all_subsets(last_layer_sets):
+    all_sets = [np.array([0]*last_layer_sets.shape[0])]
+    for i in range(0, last_layer_sets.shape[0]):
+        ones = np.where(last_layer_sets[i])
+        for ii in itertools.product("01", repeat=len(ones[0])):
+            tmp = np.array([0]*last_layer_sets.shape[0])
+            tmp[ones] = np.asarray([int(x) for x in ii])
+            rep_flag=False
+            for elem in all_sets:
+                if np.array_equal(tmp, elem):
+                    rep_flag=True
+                    break
+            if (rep_flag==False):
+                all_sets.append(tmp)
+    all_sets = np.array(all_sets)
+     
+    return all_sets     
+    
 class MaskedDenseLayer(Layer):
     def __init__(self, output_dim, activation, **kwargs):
         self.output_dim = output_dim
@@ -114,6 +143,7 @@ class MaskedDenseLayer(Layer):
     
 def main():
     
+    
     np.random.seed(4125)
     
     with np.load('datasets/simple_tree.npz') as dataset:
@@ -129,16 +159,27 @@ def main():
         test_data_probs = dataset['test_data_probs']
         params = dataset['params']
     
+    height = 4
+    width = 3
+    
     num_of_exec = 50
     num_of_all_masks = 20
     num_of_hlayer = 6
     hlayer_size = 100
-    graph_size = 4
+    graph_size = height*width
     fit_iter = 300
+            
+    last_layer_sets = generate_lastlayer_sets(height, width)
+    all_subsets = generate_all_subsets(last_layer_sets)
     
     KLs = []
     for ne in range(0, num_of_exec):
-        all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size)
+        all_masks = generate_all_masks(num_of_all_masks,
+                                       num_of_hlayer,
+                                       hlayer_size,
+                                       graph_size,
+                                       last_layer_sets,
+                                       all_subsets)
         
         input_layer = Input(shape=(4,))
     
