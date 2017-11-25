@@ -5,6 +5,7 @@ Spyder Editor
 This is a temporary script file.
 """
 import sys
+import time
 import numpy as np
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
@@ -209,6 +210,7 @@ class MaskedDenseLayer(Layer):
 def main():
     
     with np.load(sys.argv[1]) as dataset:
+        print('Dataset:', sys.argv[1])
         height = dataset['height']
         width = dataset['width']
         #input_size = dataset['inputsize']
@@ -225,20 +227,21 @@ def main():
             
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 2
+    num_of_exec = 10
     num_of_all_masks = 10
     num_of_hlayer = 2
-    hlayer_size = 50
+    hlayer_size = 100
     graph_size = height.tolist()*width.tolist()
     fit_iter = 1
-    num_of_epochs = 1000
+    num_of_epochs = 2000
     batch_s = 50
-    algorithm = sys.argv[1]
+    algorithm = sys.argv[2]
     print ('algorithm', algorithm)
     optimizer = AE_adam
     patience = 20
         
     LLs = []
+    start_time = time.time()
     for ne in range(0, num_of_exec):   
         all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         
@@ -360,15 +363,17 @@ def main():
         NLL = -1*np.mean(np.log(all_avg_probs))
         LLs.append(NLL)
     
-    mean = sum(LLs)/num_of_exec
-    variance = 1.0/len(LLs) * np.sum(np.square([x - mean for x in LLs]))
+    mean_LLs = sum(LLs)/num_of_exec
+    variance_LLs = 1.0/len(LLs) * np.sum(np.square([x - mean for x in LLs]))
     
+    total_time = time.time() - start_time
     global train_end_epochs
-    print(train_end_epochs)
-    print(np.mean(train_end_epochs))
+    print('End Epochs:', train_end_epochs)
+    print('End Epochs Average', np.mean(train_end_epochs))
     print('LLs:', LLs)
-    print('mean:', mean)
-    print('variance:', variance)
+    print('Average LLs:', mean_LLs)
+    print('Variance LLs:', variance_LLs)
+    print('Total Time:', total_time)
 
 if __name__=='__main__':
     main()
