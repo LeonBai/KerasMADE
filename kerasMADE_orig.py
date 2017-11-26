@@ -248,7 +248,7 @@ def dataset_gen_grid(height, width, trains, valids, tests):
              params=adj)
     return file_name
        
-def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo):
+def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo):
     all_masks = []
     for i in range(0,num_of_all_masks):
         #generating subsets as 3d matrix 
@@ -269,10 +269,10 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size,
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-4)):
+                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
-                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-4)):
+                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
         masks.append(mask)
         
@@ -282,10 +282,10 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size,
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
                     if (algo == 'orig'):
-                        if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-4)):
+                        if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-width)):
                             mask[k][j] = 1
                     else:
-                        if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-4)):
+                        if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-width)):
                             mask[k][j] = 1
             masks.append(mask)
         
@@ -295,10 +295,10 @@ def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size,
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
                 if (algo == 'orig'):
-                    if (j > labels[-1][k]): #and (j >= labels[-1][k]-4)):
+                    if (j > labels[-1][k]): #and (j >= labels[-1][k]-width)):
                         mask[k][j] = 1
                 else:
-                    if ((j > labels[-1][k]) and (j >= labels[-1][k]-4)):
+                    if ((j > labels[-1][k]) and (j >= labels[-1][k]-width)):
                         mask[k][j] = 1
         masks.append(mask)
         all_masks.append(masks)
@@ -316,7 +316,7 @@ def main():
     valid_length = int(sys.argv[4])
     test_length = int(sys.argv[5])
     algorithm = sys.argv[6]
-    print ('algorithm', algorithm)
+    print ('algorithm', algorithm)  #original or minus-width for now
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
@@ -351,7 +351,7 @@ def main():
     KLs = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
-        all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
+        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         
         input_layer = Input(shape=(graph_size,))
         if (num_of_hlayer == 2): 
