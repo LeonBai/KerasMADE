@@ -336,13 +336,10 @@ def main():
         print('Dataset:', file_name)
         height = dataset['height']
         width = dataset['width']
-        train_length = dataset['train_length']
         train_data = dataset['train_data']
         train_data_probs = dataset['train_data_probs']
-        valid_length = dataset['valid_length']
         valid_data = dataset['valid_data']
         valid_data_probs = dataset['valid_data_probs']
-        test_length = dataset['test_length']
         test_data = dataset['test_data']
         test_data_probs = dataset['test_data_probs']
         params = dataset['params']
