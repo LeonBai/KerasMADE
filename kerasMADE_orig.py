@@ -241,6 +241,7 @@ def main():
     patience = 20
         
     LLs = []
+    KLs = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
         all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
@@ -359,20 +360,26 @@ def main():
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
-        #KL = np.sum(np.multiply(all_avg_probs, np.log(np.divide(all_avg_probs, test_data_probs))))
+        KL = np.mean(np.log(np.divide(all_avg_probs, test_data_probs)))
         NLL = -1*np.mean(np.log(all_avg_probs))
         LLs.append(NLL)
+        KLs.append(KL)
     
     mean_LLs = sum(LLs)/num_of_exec
-    variance_LLs = 1.0/len(LLs) * np.sum(np.square([x - mean for x in LLs]))
+    variance_LLs = 1.0/len(LLs) * np.sum(np.square([x - mean_LLs for x in LLs]))
+    mean_KLs = sum(KLs)/num_of_exec
+    variance_KLs = 1.0/len(KLs) * np.sum(np.square([x - mean_KLs for x in KLs]))
     
     total_time = time.time() - start_time
     global train_end_epochs
     print('End Epochs:', train_end_epochs)
     print('End Epochs Average', np.mean(train_end_epochs))
     print('LLs:', LLs)
+    print('KLs:', KLs)
     print('Average LLs:', mean_LLs)
     print('Variance LLs:', variance_LLs)
+    print('Average KLs:', mean_KLs)
+    print('Variance KLs:', variance_KLs)
     print('Total Time:', total_time)
 
 if __name__=='__main__':
