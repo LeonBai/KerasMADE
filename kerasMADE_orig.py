@@ -320,7 +320,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 1
+    num_of_exec = 10
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 100
