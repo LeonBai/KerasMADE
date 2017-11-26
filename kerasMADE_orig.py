@@ -320,7 +320,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 2
+    num_of_exec = 1
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 100
@@ -331,23 +331,22 @@ def main():
     optimizer = AE_adam
     patience = 20
     
-    file_name = dataset_gen_grid(height, width, train_length, valid_length, test_length)
-    with np.load(file_name) as dataset:
-        print('Dataset:', file_name)
-        height = dataset['height']
-        width = dataset['width']
-        train_data = dataset['train_data']
-        train_data_probs = dataset['train_data_probs']
-        valid_data = dataset['valid_data']
-        valid_data_probs = dataset['valid_data_probs']
-        test_data = dataset['test_data']
-        test_data_probs = dataset['test_data_probs']
-        params = dataset['params']
-                  
     NLLs = []
     KLs = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
+    
+        file_name = dataset_gen_grid(height, width, train_length, valid_length, test_length)
+        with np.load(file_name) as dataset:
+            print('Dataset:', file_name)
+            train_data = dataset['train_data']
+            train_data_probs = dataset['train_data_probs']
+            valid_data = dataset['valid_data']
+            valid_data_probs = dataset['valid_data_probs']
+            test_data = dataset['test_data']
+            test_data_probs = dataset['test_data_probs']
+            params = dataset['params']
+                     
         all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         
         input_layer = Input(shape=(graph_size,))
