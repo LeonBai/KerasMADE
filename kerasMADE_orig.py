@@ -146,7 +146,7 @@ class MaskedDenseLayer(Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
 
-def dataset_gen_grid(height, width, trains, valids, tests):
+def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcomes, prob_of_outcomes):
     height = height
     width = width
     inputsize = height*width
@@ -175,35 +175,7 @@ def dataset_gen_grid(height, width, trains, valids, tests):
     #            param = np.random.sample(1)
     #            adj[jj-width][jj] = adj[jj][jj-width] = param
     
-    with np.load('parameters.npz') as parameters:
-        adj = parameters['parameter']
-        
-    all_outcomes = np.ndarray(shape=(2**inputsize, inputsize), dtype=np.float32)
-    prob_of_outcomes = np.ndarray(shape=(2**inputsize), dtype=np.float32)
-                
-    for i in range(2**inputsize):
-        str_samp = ('{0:0' + str(height*width) + 'b}').format(i)
-        asarr_samp = [int(d) for d in str_samp]
-        all_outcomes[i][:] = asarr_samp
-        sum_prod = 0
-        for r in range(height):
-            for c in range(width):
-                jj = r*width + c
-                if (c > 0):
-                    sum_prod += all_outcomes[i][jj]*all_outcomes[i][jj-1]*adj[jj][jj-1]
-                if (r > 0):
-                    sum_prod += all_outcomes[i][jj]*all_outcomes[i][jj-width]*adj[jj][jj-width]
-        p = np.exp(sum_prod)
-        prob_of_outcomes[i] = p
-    
-    sum_prob = sum(prob_of_outcomes)
-    prob_of_outcomes = np.divide(prob_of_outcomes, sum_prob)
-    
-    cum_probs = []
-    s = 0
-    for x in prob_of_outcomes:
-    	s = s + x
-    	cum_probs.append(s)
+
     
     train_data = np.ndarray(shape=(num_of_train_samples, inputsize), dtype=np.float32)
     train_data_probs = np.ndarray(shape=(num_of_train_samples), dtype=np.float32)
@@ -244,8 +216,7 @@ def dataset_gen_grid(height, width, trains, valids, tests):
              valid_data_probs=valid_data_probs,
              test_length=num_of_test_samples, #test_data.shape[0]
              test_data=test_data,
-             test_data_probs=test_data_probs,
-             params=adj)
+             test_data_probs=test_data_probs)
     return file_name
        
 def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo):
@@ -272,7 +243,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
                     if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
-                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-width)):
+                    if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
                         mask[k][j] = 1
         masks.append(mask)
         
@@ -320,7 +291,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 10
+    num_of_exec = 2
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 100
@@ -330,13 +301,45 @@ def main():
     batch_s = 50
     optimizer = AE_adam
     patience = 20
+    inputsize = height*width
     
+    with np.load('parameters.npz') as parameters:
+        adj = parameters['parameter']
+        
+    all_outcomes = np.ndarray(shape=(2**inputsize, inputsize), dtype=np.float32)
+    prob_of_outcomes = np.ndarray(shape=(2**inputsize), dtype=np.float32)
+                
+    for i in range(2**inputsize):
+        str_samp = ('{0:0' + str(height*width) + 'b}').format(i)
+        asarr_samp = [int(d) for d in str_samp]
+        all_outcomes[i][:] = asarr_samp
+        sum_prod = 0
+        for r in range(height):
+            for c in range(width):
+                jj = r*width + c
+                if (c > 0):
+                    sum_prod += all_outcomes[i][jj]*all_outcomes[i][jj-1]*adj[jj][jj-1]
+                if (r > 0):
+                    sum_prod += all_outcomes[i][jj]*all_outcomes[i][jj-width]*adj[jj][jj-width]
+        p = np.exp(sum_prod)
+        prob_of_outcomes[i] = p
+    
+    sum_prob = sum(prob_of_outcomes)
+    prob_of_outcomes = np.divide(prob_of_outcomes, sum_prob)
+    
+    cum_probs = []
+    s = 0
+    for x in prob_of_outcomes:
+        s = s + x
+        cum_probs.append(s)
+        
     NLLs = []
     KLs = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
     
-        file_name = dataset_gen_grid(height, width, train_length, valid_length, test_length)
+        file_name = dataset_gen_grid(height, width, train_length, valid_length, test_length, 
+                                     cum_probs, all_outcomes, prob_of_outcomes)
         with np.load(file_name) as dataset:
             print('Dataset:', file_name)
             train_data = dataset['train_data']
@@ -345,7 +348,6 @@ def main():
             valid_data_probs = dataset['valid_data_probs']
             test_data = dataset['test_data']
             test_data_probs = dataset['test_data_probs']
-            params = dataset['params']
                      
         all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         
