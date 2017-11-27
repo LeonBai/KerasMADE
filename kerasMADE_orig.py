@@ -240,7 +240,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
+                    if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
                     if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
@@ -303,7 +303,7 @@ def main():
     patience = 20
     inputsize = height*width
     
-    with np.load('parameters.npz') as parameters:
+    with np.load('grid_parameters.npz') as parameters:
         adj = parameters['parameter']
         
     all_outcomes = np.ndarray(shape=(2**inputsize, inputsize), dtype=np.float32)
