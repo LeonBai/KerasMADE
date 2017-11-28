@@ -240,10 +240,10 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
+                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
-                    if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
+                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-width)): #cant use permutation in our approach
                         mask[k][j] = 1
         masks.append(mask)
         
@@ -457,7 +457,9 @@ def main():
                                                     np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
                                                     )
 
-            made_prob = np.prod(made_predict, 1)
+            corrected_probs = np.multiply(np.power(made_predict, test_data), 
+                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
+            made_prob = np.prod(corrected_probs, 1)
             made_probs[j][:] = made_prob
                   
         all_avg_probs = np.mean(made_probs, axis=0)

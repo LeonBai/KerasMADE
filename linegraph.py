@@ -194,15 +194,15 @@ def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcom
         valid_data[x][:] = all_outcomes[i]
         valid_data_probs[x] = prob_of_outcomes[i]
     
-    test_data = np.ndarray(shape=(num_of_test_samples, inputsize), dtype=np.float32)
-    test_data_probs = np.ndarray(shape=(num_of_test_samples), dtype=np.float32)
-    for x in range(num_of_test_samples):
-        p = np.random.uniform(0,1)
-        i = np.searchsorted(cum_probs, p)
-        test_data[x][:] = all_outcomes[i]
-        test_data_probs[x] = prob_of_outcomes[i]
-        #test_data = all_outcomes[prob_of_outcomes > 0][:]
-        #test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
+#    test_data = np.ndarray(shape=(num_of_test_samples, inputsize), dtype=np.float32)
+#    test_data_probs = np.ndarray(shape=(num_of_test_samples), dtype=np.float32)
+#    for x in range(num_of_test_samples):
+#        p = np.random.uniform(0,1)
+#        i = np.searchsorted(cum_probs, p)
+#        test_data[x][:] = all_outcomes[i]
+#        test_data_probs[x] = prob_of_outcomes[i]
+        test_data = all_outcomes[prob_of_outcomes > 0][:]
+        test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
 
     file_name = 'datasets/line_' + str(height) + 'x' + str(width) + '_' + str(num_of_train_samples) + str(num_of_valid_samples) + str(num_of_test_samples) + '.npz'
     np.savez(file_name, 
@@ -240,7 +240,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
+                    if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
                     if ((labels[0][j] >= k) and (k >= labels[0][j]-1)): #cant use permutation in our approach
@@ -297,7 +297,7 @@ def main():
     hlayer_size = 100
     graph_size = height
     fit_iter = 1
-    num_of_epochs = 2000    #max number of epoch if not reaches the ES condition
+    num_of_epochs = 100    #max number of epoch if not reaches the ES condition
     batch_s = 50
     optimizer = AE_adam
     patience = 20
@@ -313,9 +313,12 @@ def main():
         str_samp = ('{0:0' + str(height) + 'b}').format(i)
         asarr_samp = [int(d) for d in str_samp]
         all_outcomes[i][:] = asarr_samp
-        sum_prod = all_outcomes[i][0]*params[0]*all_outcomes[i][1] + \
-        all_outcomes[i][1]*params[1]*all_outcomes[i][2] + \
-        all_outcomes[i][2]*params[2]*all_outcomes[i][3]
+        sum_prod = 0
+        for j in range(height-1):
+            sum_prod = sum_prod + all_outcomes[i][j]*params[j]*all_outcomes[i][j+1]
+#        sum_prod = all_outcomes[i][0]*params[0]*all_outcomes[i][1] + \
+#        all_outcomes[i][1]*params[1]*all_outcomes[i][2] + \
+#        all_outcomes[i][2]*params[2]*all_outcomes[i][3]
 #        for r in range(height):
 #            for c in range(width):
 #                jj = r*width + c
@@ -458,8 +461,10 @@ def main():
                                                     np.tile(all_masks[j][1], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
                                                     np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
                                                     )
-
-            made_prob = np.prod(made_predict, 1)
+            
+            corrected_probs = np.multiply(np.power(made_predict, test_data), 
+                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
+            made_prob = np.prod(corrected_probs, 1)
             made_probs[j][:] = made_prob
                   
         all_avg_probs = np.mean(made_probs, axis=0)
@@ -467,7 +472,8 @@ def main():
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
-        KL = -1*np.mean(np.log(np.divide(all_avg_probs, test_data_probs)))
+        KL = -1*np.sum(np.multiply(test_data_probs, np.log(all_avg_probs) - np.log(test_data_probs)))
+        #KL_2 = -1*np.mean(np.log(all_avg_probs) - np.log(test_data_probs))
         NLL = -1*np.mean(np.log(all_avg_probs))
         NLLs.append(NLL)
         KLs.append(KL)
@@ -488,6 +494,8 @@ def main():
     print('Average NLLs:', mean_NLLs)
     print('Variance NLLs:', variance_NLLs)
     print('Total Time:', total_time)
+    #print('KL_2:', KL_2)
+    print('end')
 
 if __name__=='__main__':
     main()
