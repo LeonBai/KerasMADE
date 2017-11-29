@@ -201,10 +201,10 @@ def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcom
 #        i = np.searchsorted(cum_probs, p)
 #        test_data[x][:] = all_outcomes[i]
 #        test_data_probs[x] = prob_of_outcomes[i]
-        test_data = all_outcomes[prob_of_outcomes > 0][:]
-        test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
+    test_data = all_outcomes[prob_of_outcomes > 0][:]
+    test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
 
-    file_name = 'datasets/line_' + str(height) + 'x' + str(width) + '_' + str(num_of_train_samples) + str(num_of_valid_samples) + str(num_of_test_samples) + '.npz'
+    file_name = 'datasets/line_' + str(height) + '_' + str(num_of_train_samples) + str(num_of_valid_samples) + str(num_of_test_samples) + '.npz'
     np.savez(file_name, 
              height=height,
              width=width,
@@ -291,13 +291,13 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 10
+    num_of_exec = 1
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 100
     graph_size = height
     fit_iter = 1
-    num_of_epochs = 100    #max number of epoch if not reaches the ES condition
+    num_of_epochs = 150    #max number of epoch if not reaches the ES condition
     batch_s = 50
     optimizer = AE_adam
     patience = 20
@@ -329,7 +329,7 @@ def main():
         p = np.exp(sum_prod)
         prob_of_outcomes[i] = p
     
-    sum_prob = sum(prob_of_outcomes)
+    sum_prob = np.sum(prob_of_outcomes)
     prob_of_outcomes = np.divide(prob_of_outcomes, sum_prob)
     
     cum_probs = []
@@ -340,6 +340,7 @@ def main():
         
     NLLs = []
     KLs = []
+    abs_KLs = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
     
@@ -353,7 +354,26 @@ def main():
             valid_data_probs = dataset['valid_data_probs']
             test_data = dataset['test_data']
             test_data_probs = dataset['test_data_probs']
-                     
+        
+        tprobs = np.zeros([height, 2])
+        tprobs[0][1] = np.float(np.sum(train_data, 0)[0])/train_length
+        tprobs[0][0] = 1-tprobs[0][1]
+        
+        for i in range(1, height):
+            tprobs[i][0] = np.float(np.sum(train_data[:,i]*(-1*train_data[:,i-1]+np.ones(train_length))))/(train_length - np.sum(train_data, 0)[i-1])
+            tprobs[i][1] = np.float(np.sum(train_data[:,i]*train_data[:,i-1]))/np.sum(train_data, 0)[i-1]
+        absolute_probs = np.ones([test_length, 1])   
+        for i in range(test_length):
+            absolute_probs[i] = tprobs[0][int(test_data[i][0])]
+            for j in range(1, height):
+                if (test_data[i][j] == 1):
+                    absolute_probs[i] = absolute_probs[i]*tprobs[j][int(test_data[i][j-1])]
+                else:
+                    absolute_probs[i] = absolute_probs[i]*(1-tprobs[j][int(test_data[i][j-1])])
+                    
+        abs_KL = -1*np.sum(np.multiply(test_data_probs, (np.log(absolute_probs) - np.log(test_data_probs))))
+        abs_KLs.append(abs_KL)
+           
         all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         
         input_layer = Input(shape=(graph_size,))
@@ -423,11 +443,10 @@ def main():
                                   epochs=num_of_epochs,
                                   batch_size=batch_s,
                                   shuffle=True,
-                                  validation_data=([reped_validdata,
-                                                    masks_valid[0], masks_valid[1], masks_valid[2],
-                                                    masks_valid[3], masks_valid[4], masks_valid[5], masks_valid[6]],
-                                                    [reped_validdata]),
-                                  callbacks=[early_stop],
+                                  #validation_data=([reped_validdata,
+                                  #                  masks_valid[0], masks_valid[1], masks_valid[2],
+                                  ##                  [reped_validdata]),
+                                  #callbacks=[early_stop],
                                   verbose=1)
             else:
                 autoencoder.fit(x=[reped_traindata, 
@@ -436,10 +455,10 @@ def main():
                                   epochs=num_of_epochs,
                                   batch_size=batch_s,
                                   shuffle=True,
-                                  validation_data=([reped_validdata,
-                                                    masks_valid[0], masks_valid[1], masks_valid[2]],
-                                                    [reped_validdata]),
-                                  callbacks=[early_stop],
+                                  #validation_data=([reped_validdata,
+                                  #                  masks_valid[0], masks_valid[1], masks_valid[2]],
+                                  #                  [reped_validdata]),
+                                  #callbacks=[early_stop],
                                   verbose=1)
 
         #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
@@ -471,9 +490,7 @@ def main():
             
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
-        #tmp = made_probs  train_data_probs
-        KL = -1*np.sum(np.multiply(test_data_probs, np.log(all_avg_probs) - np.log(test_data_probs)))
-        #KL_2 = -1*np.mean(np.log(all_avg_probs) - np.log(test_data_probs))
+        KL = -1*np.sum(np.multiply(test_data_probs, (np.log(all_avg_probs) - np.log(test_data_probs))))
         NLL = -1*np.mean(np.log(all_avg_probs))
         NLLs.append(NLL)
         KLs.append(KL)
@@ -482,6 +499,8 @@ def main():
     variance_NLLs = 1.0/len(NLLs) * np.sum(np.square([x - mean_NLLs for x in NLLs]))
     mean_KLs = sum(KLs)/num_of_exec
     variance_KLs = 1.0/len(KLs) * np.sum(np.square([x - mean_KLs for x in KLs]))
+    mean_abs_KLs = sum(abs_KLs)/num_of_exec
+    variance_abs_KLs = 1.0/len(abs_KLs) * np.sum(np.square([x - mean_abs_KLs for x in abs_KLs]))
     
     total_time = time.time() - start_time
     global train_end_epochs
@@ -489,12 +508,14 @@ def main():
     print('End Epochs Average', np.mean(train_end_epochs))
     print('NLLs:', NLLs)
     print('KLs:', KLs)
+    print('KLs:', abs_KLs)
     print('Average KLs:', mean_KLs)
     print('Variance KLs:', variance_KLs)
     print('Average NLLs:', mean_NLLs)
     print('Variance NLLs:', variance_NLLs)
+    print('Avg Absolute KL:', mean_abs_KLs)
+    print('Variance Abs KLs:', variance_NLLs)
     print('Total Time:', total_time)
-    #print('KL_2:', KL_2)
     print('end')
 
 if __name__=='__main__':

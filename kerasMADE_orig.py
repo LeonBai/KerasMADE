@@ -194,15 +194,15 @@ def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcom
         valid_data[x][:] = all_outcomes[i]
         valid_data_probs[x] = prob_of_outcomes[i]
     
-    test_data = np.ndarray(shape=(num_of_test_samples, inputsize), dtype=np.float32)
-    test_data_probs = np.ndarray(shape=(num_of_test_samples), dtype=np.float32)
-    for x in range(num_of_test_samples):
-        p = np.random.uniform(0,1)
-        i = np.searchsorted(cum_probs, p)
-        test_data[x][:] = all_outcomes[i]
-        test_data_probs[x] = prob_of_outcomes[i]
-        #test_data = all_outcomes[prob_of_outcomes > 0][:]
-        #test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
+#    test_data = np.ndarray(shape=(num_of_test_samples, inputsize), dtype=np.float32)
+#    test_data_probs = np.ndarray(shape=(num_of_test_samples), dtype=np.float32)
+#    for x in range(num_of_test_samples):
+#        p = np.random.uniform(0,1)
+#        i = np.searchsorted(cum_probs, p)
+#        test_data[x][:] = all_outcomes[i]
+#        test_data_probs[x] = prob_of_outcomes[i]
+    test_data = all_outcomes[prob_of_outcomes > 0][:]
+    test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
 
     file_name = 'datasets/grid_' + str(height) + 'x' + str(width) + '_' + str(num_of_train_samples) + str(num_of_valid_samples) + str(num_of_test_samples) + '.npz'
     np.savez(file_name, 
@@ -240,10 +240,10 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
+                    if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
-                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-width)): #cant use permutation in our approach
+                    if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
                         mask[k][j] = 1
         masks.append(mask)
         
@@ -291,7 +291,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 2
+    num_of_exec = 1
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 100
@@ -324,7 +324,7 @@ def main():
         p = np.exp(sum_prod)
         prob_of_outcomes[i] = p
     
-    sum_prob = sum(prob_of_outcomes)
+    sum_prob = np.sum(prob_of_outcomes)
     prob_of_outcomes = np.divide(prob_of_outcomes, sum_prob)
     
     cum_probs = []
@@ -467,7 +467,7 @@ def main():
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
-        KL = -1*np.mean(np.log(np.divide(all_avg_probs, test_data_probs)))
+        KL = -1*np.sum(np.multiply(test_data_probs, (np.log(all_avg_probs) - np.log(test_data_probs))))
         NLL = -1*np.mean(np.log(all_avg_probs))
         NLLs.append(NLL)
         KLs.append(KL)
