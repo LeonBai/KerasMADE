@@ -235,17 +235,20 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
         
         masks = []
-        pi = np.random.permutation(graph_size)
+        if (algo == 'orig'):
+            pi = np.random.permutation(graph_size)
+        else:
+            pi = np.array(range(graph_size))
         #first layer mask
         mask = np.zeros([graph_size, hlayer_size])
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
                     if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
                 else:
                     if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
         masks.append(mask)
         
         #hidden layers mask   
@@ -255,10 +258,10 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
                 for k in range(0, hlayer_size):
                     if (algo == 'orig'):
                         if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-width)):
-                            mask[k][j] = 1
+                            mask[k][j] = 1.0
                     else:
                         if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-width)):
-                            mask[k][j] = 1
+                            mask[k][j] = 1.0
             masks.append(mask)
         
         #last layer mask
@@ -277,7 +280,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         
     all_masks = [[x*1.0 for x in y] for y in all_masks]
     
-    return all_masks
+    return [all_masks, pi]
     
 def main():
     
@@ -305,9 +308,9 @@ def main():
     inputsize = height*width
     test_digit=1
     (x_train, y_train), (x_test, y_test) = mnist.load_data()    
-    train_data = x_train[y_train==test_digit][0:train_length]
-    valid_data = x_train[y_train==test_digit][-train_length:]
-    test_data = x_test[y_test==test_digit][0:test_length]
+    train_data = x_train[y_train==test_digit][0:train_length].reshape(train_length, height*width)
+    valid_data = x_train[y_train==test_digit][-train_length:].reshape(train_length, height*width)
+    test_data = x_test[y_test==test_digit][0:test_length].reshape(test_length, height*width)
     
                 
     results = []
@@ -316,8 +319,11 @@ def main():
     
 
                      
-        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
-        
+        all_masks, pi = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
+        perm_matrix = np.zeros((test_length, graph_size))
+        for i in range(test_length):
+            perm_matrix[i] = np.array([test_data[i][j] for j in pi])
+            
         input_layer = Input(shape=(graph_size,))
         if (num_of_hlayer == 2): 
             mask_1 = Input(shape = (graph_size , hlayer_size))
@@ -424,8 +430,8 @@ def main():
                                                     np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
                                                     )
 
-            corrected_probs = np.multiply(np.power(made_predict, test_data), 
-                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
+            corrected_probs = np.multiply(np.power(made_predict, perm_matrix), 
+                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(perm_matrix.shape) - perm_matrix))
             made_prob = np.prod(corrected_probs, 1)
             made_probs[j][:] = made_prob
                   
