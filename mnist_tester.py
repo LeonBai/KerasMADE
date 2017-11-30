@@ -156,7 +156,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         #generating subsets as 3d matrix 
         #subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
 
-        labels = np.zeros([num_of_hlayer, hlayer_size])
+        labels = np.zeros([num_of_hlayer, hlayer_size], dtype=np.float32)
         min_label = 0
         for i in range(num_of_hlayer):
             labels[i][:] = np.random.randint(min_label, graph_size, (hlayer_size))
@@ -170,7 +170,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         else:
             pi = np.array(range(graph_size))
         #first layer mask
-        mask = np.zeros([graph_size, hlayer_size])
+        mask = np.zeros([graph_size, hlayer_size], dtype=np.float32)
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
@@ -183,7 +183,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         
         #hidden layers mask   
         for i in range(1, num_of_hlayer):
-            mask = np.zeros([hlayer_size, hlayer_size])
+            mask = np.zeros([hlayer_size, hlayer_size], dtype=np.float32)
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
                     if (algo == 'orig'):
@@ -195,20 +195,20 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
             masks.append(mask)
         
         #last layer mask
-        mask = np.zeros([hlayer_size, graph_size])
+        mask = np.zeros([hlayer_size, graph_size], dtype=np.float32)
         #last_layer_label = np.random.randint(0, 4, graph_size)
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
                 if (algo == 'orig'):
                     if (j > labels[-1][k]): #and (j >= labels[-1][k]-width)):
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
                 else:
                     if ((j > labels[-1][k]) and (j >= labels[-1][k]-width)):
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
         masks.append(mask)
         all_masks.append(masks)
         
-    all_masks = [[x*1.0 for x in y] for y in all_masks]
+    #all_masks = [[x*1.0 for x in y] for y in all_masks]
     
     return [all_masks, pi]
     
@@ -225,7 +225,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 1
+    num_of_exec = 10
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 1000
@@ -244,7 +244,7 @@ def main():
     valid_data = np.floor(x_train[y_train==test_digit][-train_length:].reshape(train_length, height*width).astype(np.float32)/255 + 0.5)
     test_data = np.floor(x_test[y_test==test_digit][0:test_length].reshape(test_length, height*width).astype(np.float32)/255 + 0.5)
     
-                
+    NLLs = []            
     results = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
@@ -312,7 +312,6 @@ def main():
                     masks_valid[i] = np.concatenate([masks_valid[i], tmp], axis=0)
                 
         for i in range(0, fit_iter):
-            state = np.random.randint(0,num_of_all_masks)
             if (num_of_hlayer == 6):
                 autoencoder.fit(x=[reped_traindata, 
                                   masks_train[0], masks_train[1], masks_train[2],
