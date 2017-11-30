@@ -7,6 +7,8 @@ This is a temporary script file.
 import sys
 import time
 import numpy as np
+import os
+import struct
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
 from keras.models import Model
@@ -16,7 +18,8 @@ import keras.activations as activations
 from keras.layers.merge import Multiply
 from keras import optimizers
 import tensorflow as tf
-from keras.datasets import mnist 
+from keras.datasets import mnist
+
 
 train_end_epochs = []
 
@@ -147,79 +150,6 @@ class MaskedDenseLayer(Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
 
-def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcomes, prob_of_outcomes):
-    height = height
-    width = width
-    inputsize = height*width
-    
-    num_of_train_samples = trains
-    num_of_valid_samples = valids
-    num_of_test_samples = tests
-    #for a very elemntry testing i considered graph shape like this:
-    #			*
-    #			|
-    #			*
-    #		   / \
-    #		  *   *
-    #
-    # Here i'm trying to make samples as data set relevant to random parameters
-    # for this tree
-    
-    #adj = np.zeros([inputsize, inputsize])
-    #for r in range(0, height):
-    #    for c in range(0, width):
-    #        jj = r*width + c
-    #        if c > 0:
-    #            param = np.random.sample(1)
-    #            adj[jj-1][jj] = adj[jj][jj-1] = param
-    #        if r > 0:
-    #            param = np.random.sample(1)
-    #            adj[jj-width][jj] = adj[jj][jj-width] = param
-    
-
-    
-    train_data = np.ndarray(shape=(num_of_train_samples, inputsize), dtype=np.float32)
-    train_data_probs = np.ndarray(shape=(num_of_train_samples), dtype=np.float32)
-    for x in range(num_of_train_samples):
-        p = np.random.uniform(0,1)
-        i = np.searchsorted(cum_probs, p)
-        train_data[x][:] = all_outcomes[i]
-        train_data_probs[x] = prob_of_outcomes[i]
-    
-    
-    valid_data = np.ndarray(shape=(num_of_valid_samples, inputsize), dtype=np.float32)
-    valid_data_probs = np.ndarray(shape=(num_of_valid_samples), dtype=np.float32)
-    for x in range(num_of_valid_samples):
-        p = np.random.uniform(0,1)
-        i = np.searchsorted(cum_probs, p)
-        valid_data[x][:] = all_outcomes[i]
-        valid_data_probs[x] = prob_of_outcomes[i]
-    
-#    test_data = np.ndarray(shape=(num_of_test_samples, inputsize), dtype=np.float32)
-#    test_data_probs = np.ndarray(shape=(num_of_test_samples), dtype=np.float32)
-#    for x in range(num_of_test_samples):
-#        p = np.random.uniform(0,1)
-#        i = np.searchsorted(cum_probs, p)
-#        test_data[x][:] = all_outcomes[i]
-#        test_data_probs[x] = prob_of_outcomes[i]
-    test_data = all_outcomes[prob_of_outcomes > 0][:]
-    test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
-
-    file_name = 'datasets/grid_' + str(height) + 'x' + str(width) + '_' + str(num_of_train_samples) + str(num_of_valid_samples) + str(num_of_test_samples) + '.npz'
-    np.savez(file_name, 
-             height=height,
-             width=width,
-             train_length=num_of_train_samples,
-             train_data=train_data, 
-             train_data_probs = train_data_probs, 
-             valid_length=num_of_valid_samples, 
-             valid_data=valid_data,
-             valid_data_probs=valid_data_probs,
-             test_length=num_of_test_samples, #test_data.shape[0]
-             test_data=test_data,
-             test_data_probs=test_data_probs)
-    return file_name
-       
 def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo):
     all_masks = []
     for i in range(0,num_of_all_masks):
@@ -307,18 +237,18 @@ def main():
     patience = 20
     inputsize = height*width
     test_digit=1
+    
+
     (x_train, y_train), (x_test, y_test) = mnist.load_data()    
-    train_data = x_train[y_train==test_digit][0:train_length].reshape(train_length, height*width)
-    valid_data = x_train[y_train==test_digit][-train_length:].reshape(train_length, height*width)
-    test_data = x_test[y_test==test_digit][0:test_length].reshape(test_length, height*width)
+    train_data = np.floor(x_train[y_train==test_digit][0:train_length].reshape(train_length, height*width).astype(np.float32)/255 + 0.5)
+    valid_data = np.floor(x_train[y_train==test_digit][-train_length:].reshape(train_length, height*width).astype(np.float32)/255 + 0.5)
+    test_data = np.floor(x_test[y_test==test_digit][0:test_length].reshape(test_length, height*width).astype(np.float32)/255 + 0.5)
     
                 
     results = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
-    
-
-                     
+                    
         all_masks, pi = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
         perm_matrix = np.zeros((test_length, graph_size))
         for i in range(test_length):
