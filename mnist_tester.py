@@ -228,10 +228,10 @@ def main():
     num_of_exec = 10
     num_of_all_masks = 10
     num_of_hlayer = 2
-    hlayer_size = 1000
+    hlayer_size = 2000
     graph_size = height*width
     fit_iter = 1
-    num_of_epochs = 2000    #max number of epoch if not reaches the ES condition
+    num_of_epochs = 2000   #max number of epoch if not reaches the ES condition
     batch_s = 50
     optimizer = AE_adam
     patience = 20
@@ -320,11 +320,11 @@ def main():
                                   epochs=num_of_epochs,
                                   batch_size=batch_s,
                                   shuffle=True,
-                                  validation_data=([reped_validdata,
-                                                    masks_valid[0], masks_valid[1], masks_valid[2],
-                                                    masks_valid[3], masks_valid[4], masks_valid[5], masks_valid[6]],
-                                                    [reped_validdata]),
-                                  callbacks=[early_stop],
+#                                  validation_data=([reped_validdata,
+#                                                    masks_valid[0], masks_valid[1], masks_valid[2],
+#                                                    masks_valid[3], masks_valid[4], masks_valid[5], masks_valid[6]],
+#                                                    [reped_validdata]),
+#                                  callbacks=[early_stop],
                                   verbose=1)
             else:
                 autoencoder.fit(x=[reped_traindata, 
@@ -333,10 +333,10 @@ def main():
                                   epochs=num_of_epochs,
                                   batch_size=batch_s,
                                   shuffle=True,
-                                  validation_data=([reped_validdata,
-                                                    masks_valid[0], masks_valid[1], masks_valid[2]],
-                                                    [reped_validdata]),
-                                  callbacks=[early_stop],
+#                                  validation_data=([reped_validdata,
+#                                                    masks_valid[0], masks_valid[1], masks_valid[2]],
+#                                                    [reped_validdata]),
+#                                  callbacks=[early_stop],
                                   verbose=1)
 
         #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
@@ -375,10 +375,12 @@ def main():
     with open("mnist/model.json", "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    autoencoder.save_weights("mnist/model.h5")
+    model_path = 'mnist/model_' + algorithm + '.h5'
+    autoencoder.save_weights(model_path)
     print("Saved model to disk")
     
-    np.savez('mnist/mnist_results', results=results)
+    results_path = 'mnist/mnist_' + algorithm + '_results'
+    np.savez(results_path, results=results)
     mean_NLLs = sum(NLLs)/num_of_exec
     variance_NLLs = 1.0/len(NLLs) * np.sum(np.square([x - mean_NLLs for x in NLLs]))
     #mean_KLs = sum(KLs)/num_of_exec
