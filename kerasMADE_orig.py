@@ -236,6 +236,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         masks = []
         if (algo == 'orig'):
             pi = np.random.permutation(graph_size)
+            #pi = np.array(range(graph_size))
         else:
             pi = np.array(range(graph_size))
         #first layer mask
@@ -243,10 +244,10 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= pi[k]): #and (pi[k] >= labels[0][j]-width)):
+                    if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1
                 else:
-                    if ((labels[0][j] >= pi[k]) and (pi[k] >= labels[0][j]-width)): #cant use permutation in our approach
+                    if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
                         mask[k][j] = 1
         masks.append(mask)
         
@@ -294,7 +295,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 1
+    num_of_exec = 5
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 100
@@ -353,9 +354,11 @@ def main():
             test_data_probs = dataset['test_data_probs']
                      
         all_masks, pi = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
-        perm_matrix = np.zeros((test_length, graph_size))
-        for i in range(test_length):
-            perm_matrix[i] = np.array([test_data[i][j] for j in pi])
+#        perm_matrix = np.zeros((test_length, graph_size))
+#        for i in range(test_length):
+#            for j in range(graph_size):
+#                perm_matrix[i][j] = test_data[i][np.where(pi==j)[0][0]]
+            #perm_matrix[i][j] = test_data[i][k]  :  pi[k] == j
                 
         input_layer = Input(shape=(graph_size,))
         if (num_of_hlayer == 2): 
@@ -463,8 +466,8 @@ def main():
                                                     np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
                                                     )
             
-            corrected_probs = np.multiply(np.power(made_predict, perm_matrix), 
-                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(perm_matrix.shape) - perm_matrix))
+            corrected_probs = np.multiply(np.power(made_predict, test_data), 
+                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
             made_prob = np.prod(corrected_probs, 1)
             made_probs[j][:] = made_prob
                   

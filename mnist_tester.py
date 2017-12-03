@@ -250,9 +250,9 @@ def main():
     for ne in range(0, num_of_exec):   
                     
         all_masks, pi = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
-        perm_matrix = np.zeros((test_length, graph_size))
-        for i in range(test_length):
-            perm_matrix[i] = np.array([test_data[i][j] for j in pi])
+#        perm_matrix = np.zeros((test_length, graph_size))
+#        for i in range(test_length):
+#            perm_matrix[i] = np.array([test_data[i][j] for j in pi])
             
         input_layer = Input(shape=(graph_size,))
         if (num_of_hlayer == 2): 
@@ -359,8 +359,8 @@ def main():
                                                     np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
                                                     )
 
-            corrected_probs = np.multiply(np.power(made_predict, perm_matrix), 
-                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(perm_matrix.shape) - perm_matrix))
+            corrected_probs = np.multiply(np.power(made_predict, test_data), 
+                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
             made_prob = np.prod(corrected_probs, 1)
             made_probs[j][:] = made_prob
                   
