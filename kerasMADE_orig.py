@@ -83,66 +83,32 @@ class MyEarlyStopping(Callback):
             print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
             
 class MaskedDenseLayer(Layer):
-    def __init__(self, output_dim, activation, **kwargs):
+    def __init__(self, output_dim, masks ,activation, **kwargs):
         self.output_dim = output_dim
         super(MaskedDenseLayer, self).__init__(**kwargs)
-        #self.units = units
-        #self.activation = activations.get(activation)
-        #self._layer_number = layer_number
+        self._mask = masks
         self._activation = activations.get(activation)
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.kernel = self.add_weight(name='kernel', 
                                       shape=(input_shape[0][1], self.output_dim),
                                       initializer='glorot_uniform',
-                                      trainable=True)
+                                      trainable=True,
+                                      dtype="float32")
         super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
-
     
     def call(self, l):
         self.x = l[0]
-        self._mask = l[1]
-        bs = K.shape(self.x)[0]       
+        self._state = l[1]
+
+        bs = K.shape(self.x)[0]
         ks = K.shape(self.kernel)
-        #masked_flat = Multiply()([K.tile(K.reshape(self.kernel,[1,ks[0]*ks[1]]),[bs,1]), K.reshape(self._mask,[bs,ks[0]*ks[1]])])        
-        #masked = K.reshape(masked_flat, [bs, ks[0], ks[1]])
-        masked = tf.multiply(K.tile(K.reshape(self.kernel,[1,ks[0],ks[1]]),[bs,1,1]), self._mask)
+
+        tmp_mask = tf.gather(tf.constant(self._mask), K.reshape(self._state,[-1]))
+        masked = tf.multiply(K.tile(K.reshape(self.kernel,[1,ks[0],ks[1]]),[bs,1,1]), tmp_mask)
         self._output = tf.matmul(K.reshape(self.x,[bs,1,ks[0]]), masked)
         return self._activation(K.reshape(self._output,[bs,self.output_dim]))
-        
-    '''
-    def call(self, l):
-        self.x = l[0]
-        self._mask = l[1][1]
-        
-        self._mask_all = l[1]
-        bs = K.shape(self.x)[0]       
-        ks = K.shape(self.kernel)
-        
-        masked_flat = Multiply()([K.tile(K.reshape(self.kernel,[1,-1]),[bs,1]), K.reshape(self._mask,[bs,-1])])        
-        masked_all = K.reshape(masked_flat, [bs, ks[0], ks[1]])
-        output = K.dot(K.reshape(self.x,[bs,1,-1]), masked_all)
-        a = self._activation(output)
-        
-        
-        print('self._mask', self._mask)
-        #print('x:', x)
-        #print('dot result:', K.dot(x, self.kernel))
-        kernel_shape = K.shape(self.kernel).eval(session=K.get_session())
-        #mask_shape = K.shape(self._mask).eval(session=K.get_session())
-        #print('khar')
-        
-        #tiled_kernel = K.tile(K.reshape(self.kernel, [1, kernel_shape[0], kernel_shape[1]]), [20, 1, 1])
-        #print('kernel:', K.shape(self.kernel).eval(session=K.get_session()))
-        masked = Multiply()([self.kernel, self._mask])
-        #masked = Multiply()([self.kernel, packed_mask])
-        print('masked:', masked)
-        #print('x:', self.x)
-        self._output = K.dot(self.x, masked)
-        print('output:', self._output)
-        return self._activation(self._output)
-    '''
-    
+  
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
 
@@ -154,28 +120,6 @@ def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcom
     num_of_train_samples = trains
     num_of_valid_samples = valids
     num_of_test_samples = tests
-    #for a very elemntry testing i considered graph shape like this:
-    #			*
-    #			|
-    #			*
-    #		   / \
-    #		  *   *
-    #
-    # Here i'm trying to make samples as data set relevant to random parameters
-    # for this tree
-    
-    #adj = np.zeros([inputsize, inputsize])
-    #for r in range(0, height):
-    #    for c in range(0, width):
-    #        jj = r*width + c
-    #        if c > 0:
-    #            param = np.random.sample(1)
-    #            adj[jj-1][jj] = adj[jj][jj-1] = param
-    #        if r > 0:
-    #            param = np.random.sample(1)
-    #            adj[jj-width][jj] = adj[jj][jj-width] = param
-    
-
     
     train_data = np.ndarray(shape=(num_of_train_samples, inputsize), dtype=np.float32)
     train_data_probs = np.ndarray(shape=(num_of_train_samples), dtype=np.float32)
@@ -225,62 +169,69 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         #generating subsets as 3d matrix 
         #subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
 
-        labels = np.zeros([num_of_hlayer, hlayer_size])
+        labels = np.zeros([num_of_hlayer, hlayer_size], dtype=np.float32)
         min_label = 0
-        for i in range(num_of_hlayer):
-            labels[i][:] = np.random.randint(min_label, graph_size, (hlayer_size))
-            min_label = np.amin(labels[i])
+        for ii in range(num_of_hlayer):
+            labels[ii][:] = np.random.randint(min_label, graph_size, (hlayer_size))
+            min_label = np.amin(labels[ii])
         #generating masks as 3d matrix
         #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
         
         masks = []
-        if (algo == 'orig'):
-            pi = np.random.permutation(graph_size)
-            #pi = np.array(range(graph_size))
-        else:
-            pi = np.array(range(graph_size))
+#        if (algo == 'orig'):
+#            pi = np.random.permutation(graph_size)
+#            #pi = np.array(range(graph_size))
+#        else:
+#            pi = np.array(range(graph_size))
         #first layer mask
-        mask = np.zeros([graph_size, hlayer_size])
+        mask = np.zeros([graph_size, hlayer_size], dtype=np.float32)
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
                     if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
                 else:
                     if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
         masks.append(mask)
         
         #hidden layers mask   
         for i in range(1, num_of_hlayer):
-            mask = np.zeros([hlayer_size, hlayer_size])
+            mask = np.zeros([hlayer_size, hlayer_size], dtype=np.float32)
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
                     if (algo == 'orig'):
                         if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-width)):
-                            mask[k][j] = 1
+                            mask[k][j] = 1.0
                     else:
                         if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-width)):
-                            mask[k][j] = 1
+                            mask[k][j] = 1.0
             masks.append(mask)
         
         #last layer mask
-        mask = np.zeros([hlayer_size, graph_size])
+        mask = np.zeros([hlayer_size, graph_size], dtype=np.float32)
         #last_layer_label = np.random.randint(0, 4, graph_size)
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
                 if (algo == 'orig'):
                     if (j > labels[-1][k]): #and (j >= labels[-1][k]-width)):
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
                 else:
                     if ((j > labels[-1][k]) and (j >= labels[-1][k]-width)):
-                        mask[k][j] = 1
+                        mask[k][j] = 1.0
         masks.append(mask)
         all_masks.append(masks)
         
-    all_masks = [[x*1.0 for x in y] for y in all_masks]
+    swapped_all_masks = []
+    for i in range(num_of_hlayer+1):
+        swapped_masks = []
+        for j in range(num_of_all_masks):
+            swapped_masks.append(all_masks[j][i])
+        swapped_all_masks.append(swapped_masks)
+        
+    #all_masks = [[x*1.0 for x in y] for y in all_masks]
     
-    return [all_masks, pi]
+    return swapped_all_masks
     
 def main():
     
@@ -301,7 +252,7 @@ def main():
     hlayer_size = 100
     graph_size = height*width
     fit_iter = 1
-    num_of_epochs = 2000    #max number of epoch if not reaches the ES condition
+    num_of_epochs = 2000   #max number of epoch if not reaches the ES condition
     batch_s = 50
     optimizer = AE_adam
     patience = 20
@@ -312,7 +263,7 @@ def main():
         
     all_outcomes = np.ndarray(shape=(2**inputsize, inputsize), dtype=np.float32)
     prob_of_outcomes = np.ndarray(shape=(2**inputsize), dtype=np.float32)
-                
+          
     for i in range(2**inputsize):
         str_samp = ('{0:0' + str(height*width) + 'b}').format(i)
         asarr_samp = [int(d) for d in str_samp]
@@ -341,7 +292,6 @@ def main():
     KLs = []
     start_time = time.time()
     for ne in range(0, num_of_exec):   
-    
         file_name = dataset_gen_grid(height, width, train_length, valid_length, test_length, 
                                      cum_probs, all_outcomes, prob_of_outcomes)
         with np.load(file_name) as dataset:
@@ -353,14 +303,17 @@ def main():
             test_data = dataset['test_data']
             test_data_probs = dataset['test_data_probs']
                      
-        all_masks, pi = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
+        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
 #        perm_matrix = np.zeros((test_length, graph_size))
 #        for i in range(test_length):
 #            for j in range(graph_size):
 #                perm_matrix[i][j] = test_data[i][np.where(pi==j)[0][0]]
             #perm_matrix[i][j] = test_data[i][k]  :  pi[k] == j
-                
+
+        
         input_layer = Input(shape=(graph_size,))
+        state = Input(shape=(1,), dtype = "int32")
+
         if (num_of_hlayer == 2): 
             mask_1 = Input(shape = (graph_size , hlayer_size))
             mask_2 = Input(shape = (hlayer_size , hlayer_size))
@@ -375,73 +328,50 @@ def main():
             mask_7 = Input(shape = (hlayer_size , graph_size))
     
         if (num_of_hlayer == 2):
-            hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
-            hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
-            output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer2, mask_3] )
+            hlayer1 = MaskedDenseLayer(hlayer_size, np.array(all_masks[0]), 'relu')( [input_layer, state] )
+            hlayer2 = MaskedDenseLayer(hlayer_size, np.array(all_masks[1]), 'relu')( [hlayer1, state] )
+            output_layer = MaskedDenseLayer(graph_size, np.array(all_masks[2]), 'sigmoid')( [hlayer2, state] )
         else:
-            hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
-            hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
-            hlayer3 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer2, mask_3] )
-            hlayer4 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer3, mask_4] )
-            hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer4, mask_5] )
-            hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer5, mask_6] )
-            output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer6, mask_7] )
+            hlayer1 = MaskedDenseLayer(hlayer_size, np.array(all_masks[0]), 'relu')( [input_layer, state] )
+            hlayer2 = MaskedDenseLayer(hlayer_size, np.array(all_masks[1]), 'relu')( [hlayer1, state] )
+            hlayer3 = MaskedDenseLayer(hlayer_size, np.array(all_masks[2]), 'relu')( [hlayer2, state] )
+            hlayer4 = MaskedDenseLayer(hlayer_size, np.array(all_masks[3]), 'relu')( [hlayer3, state] )
+            hlayer5 = MaskedDenseLayer(hlayer_size, np.array(all_masks[4]), 'relu')( [hlayer4, state] )
+            hlayer6 = MaskedDenseLayer(hlayer_size, np.array(all_masks[5]), 'relu')( [hlayer5, state] )
+            output_layer = MaskedDenseLayer(graph_size, np.array(all_masks[6]), 'sigmoid')( [hlayer6, state] )
         if (num_of_hlayer == 6):
-            autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
-                            mask_4, mask_5, mask_6, mask_7], outputs=[output_layer])
+            autoencoder = Model(inputs=[input_layer, state], outputs=[output_layer])
         else:
-            autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3], outputs=[output_layer])
+            autoencoder = Model(inputs=[input_layer, state], outputs=[output_layer])
         
         autoencoder.compile(optimizer=optimizer, loss='binary_crossentropy')
         #reassign_mask = ReassignMask()
         early_stop = MyEarlyStopping(monitor='val_loss', min_delta=0, patience=patience, verbose=1, mode='auto')
         
+        reped_state_train = np.arange(train_length*num_of_all_masks, dtype=np.int32)/train_length
+        reped_state_valid = np.arange(valid_length*num_of_all_masks, dtype=np.int32)/valid_length
         reped_traindata = np.tile(train_data, [num_of_all_masks, 1])
         reped_validdata = np.tile(valid_data, [num_of_all_masks, 1])
-        
-        masks_train = [None]*(num_of_hlayer+1)
-        for i in range(num_of_hlayer+1):
-            for j in range(num_of_all_masks):
-                tmp = np.tile(all_masks[j][i],[train_length,1,1])
-                if j == 0:
-                    masks_train[i] = tmp
-                else:    
-                    masks_train[i] = np.concatenate([masks_train[i], tmp], axis=0)
-                    
-        masks_valid = [None]*(num_of_hlayer+1)
-        for i in range(num_of_hlayer+1):
-            for j in range(num_of_all_masks):
-                tmp = np.tile(all_masks[j][i],[valid_length,1,1])
-                if j == 0:
-                    masks_valid[i] = tmp
-                else:    
-                    masks_valid[i] = np.concatenate([masks_valid[i], tmp], axis=0)
                 
         for i in range(0, fit_iter):
-            state = np.random.randint(0,num_of_all_masks)
             if (num_of_hlayer == 6):
-                autoencoder.fit(x=[reped_traindata, 
-                                  masks_train[0], masks_train[1], masks_train[2],
-                                  masks_train[3], masks_train[4], masks_train[5], masks_train[6]],
+                autoencoder.fit(x=[reped_traindata, reped_state_train],
                                   y=[reped_traindata],
                                   epochs=num_of_epochs,
                                   batch_size=batch_s,
                                   shuffle=True,
-                                  validation_data=([reped_validdata,
-                                                    masks_valid[0], masks_valid[1], masks_valid[2],
-                                                    masks_valid[3], masks_valid[4], masks_valid[5], masks_valid[6]],
+                                  validation_data=([reped_validdata, reped_state_valid],
                                                     [reped_validdata]),
                                   callbacks=[early_stop],
                                   verbose=1)
             else:
                 autoencoder.fit(x=[reped_traindata, 
-                                  masks_train[0], masks_train[1], masks_train[2]],
+                                  reped_state_train],
                                   y=[reped_traindata],
                                   epochs=num_of_epochs,
                                   batch_size=batch_s,
                                   shuffle=True,
-                                  validation_data=([reped_validdata,
-                                                    masks_valid[0], masks_valid[1], masks_valid[2]],
+                                  validation_data=([reped_validdata, reped_state_valid],
                                                     [reped_validdata]),
                                   callbacks=[early_stop],
                                   verbose=1)
@@ -449,22 +379,7 @@ def main():
         #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
         made_probs = np.zeros([num_of_all_masks, test_length])
         for j in range(num_of_all_masks):
-            if (num_of_hlayer == 6):
-                made_predict = autoencoder.predict([test_data, 
-                                                    np.tile(all_masks[j][0], [test_length, 1, 1]),#.reshape(1, graph_size, hlayer_size),
-                                                    np.tile(all_masks[j][1], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
-                                                    np.tile(all_masks[j][2], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
-                                                    np.tile(all_masks[j][3], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
-                                                    np.tile(all_masks[j][4], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
-                                                    np.tile(all_masks[j][5], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
-                                                    np.tile(all_masks[j][6], [test_length, 1, 1])]#.reshape(1, hlayer_size, graph_size)]
-                                                    )
-            else:
-                 made_predict = autoencoder.predict([test_data, 
-                                                    np.tile(all_masks[j][0], [test_length, 1, 1]),#.reshape(1, graph_size, hlayer_size),
-                                                    np.tile(all_masks[j][1], [test_length, 1, 1]),#.reshape(1, hlayer_size, hlayer_size), 
-                                                    np.tile(all_masks[j][2], [test_length, 1, 1])]#.reshape(1, hlayer_size, hlayer_size), 
-                                                    )
+            made_predict = autoencoder.predict([test_data, j * np.ones([test_length,1])])#.reshape(1, hlayer_size, graph_size)]
             
             corrected_probs = np.multiply(np.power(made_predict, test_data), 
                             np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
@@ -473,9 +388,6 @@ def main():
                   
         all_avg_probs = np.mean(made_probs, axis=0)
             
-        #print('made_probs', made_probs)
-        #print('test_probs', test_data_probs)
-        #tmp = made_probs  train_data_probs
         KL = -1*np.sum(np.multiply(test_data_probs, (np.log(all_avg_probs) - np.log(test_data_probs))))
         NLL = -1*np.mean(np.log(all_avg_probs))
         NLLs.append(NLL)
