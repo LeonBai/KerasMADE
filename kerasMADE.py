@@ -5,6 +5,7 @@ Spyder Editor
 This is a temporary script file.
 """
 import sys
+import time
 import numpy as np
 from keras.engine.topology import Layer
 from keras.callbacks import Callback
@@ -14,258 +15,437 @@ from keras.layers import Input
 import keras.activations as activations
 from keras.layers.merge import Multiply
 from keras import optimizers
-import itertools
+import tensorflow as tf
 
-#masking lambdaCallback
-class ReassignMask(Callback):
-    def on_epoch_end(self, epoch, logs):
-        global state 
-        state = np.random.randint(0,20)
-        
-class SaveWeights(Callback):
-    def on_epoch_end(self, epoch, logs):
-        for idx, layer in enumerate(model.layers):
-            print ("layer", idx, "= ", layerlayer.get_wights)
-            
+train_end_epochs = []
 
-def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, last_layer_sets, all_subsets):
-    all_masks = []
-    for i in range(0,num_of_all_masks):
-        #generating subsets as 3d matrix 
-        subsets = np.zeros([num_of_hlayer, hlayer_size, graph_size])
-        for jj in range(0, num_of_hlayer):
-            for jjj in range(0, hlayer_size):
-                subsets[jj][jjj][:] = all_subsets[np.random.randint(0, all_subsets.shape[0])]
-        #generating masks as 3d matrix
-        #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
-        masks = []
-        
-        #first layer mask
-        mask = np.zeros([graph_size, hlayer_size])
-        first_sets = np.eye(graph_size, dtype=int)
-        for j in range(0, hlayer_size):
-            for k in range(0, graph_size):
-                if all( (subsets[0][j] - first_sets[k]) >=0 ):
-                    mask[k][j] = 1
-        masks.append(mask)
-        
-        #hidden layers mask
-        for i in range(1, num_of_hlayer):
-            mask = np.zeros([hlayer_size, hlayer_size])
-            for j in range(0, hlayer_size):
-                for k in range(0, hlayer_size):
-                    if all( (subsets[i][j] - subsets[i-1][k]) >= 0):
-                        mask[k][j] = 1
-            masks.append(mask)
-        
-        #last layer mask
-        mask = np.zeros([hlayer_size, graph_size])
-        for j in range(0, graph_size):
-            for k in range(0, hlayer_size):
-                if all( (last_layer_sets[j] - subsets[num_of_hlayer-1][k]) >=0 ):
-                    mask[k][j] = 1
-        masks.append(mask)
-        all_masks.append(masks)
-        
-    all_masks = [[x*1.0 for x in y] for y in all_masks]
-    
-    return all_masks
+class MyEarlyStopping(Callback):
+    def __init__(self, monitor='val_loss',
+                 min_delta=0, patience=0, verbose=0, mode='auto'):
+        super(MyEarlyStopping, self).__init__()
 
-# This function generates the cut set of each node due to its preceedings
-# for a grid graph
-def generate_lastlayer_sets(width, height):
-    last_layer_sets = np.zeros([width*height, width*height])
-    for i in range(0, width*height):
-        if (i/width) != 0:
-            begin_pos = (i/width-1)*width + (i%width)
+        self.monitor = monitor
+        self.patience = patience
+        self.verbose = verbose
+        self.min_delta = min_delta
+        self.wait = 0
+        self.stopped_epoch = 0
+
+        if mode not in ['auto', 'min', 'max']:
+            warnings.warn('EarlyStopping mode %s is unknown, '
+                          'fallback to auto mode.' % mode,
+                          RuntimeWarning)
+            mode = 'auto'
+
+        if mode == 'min':
+            self.monitor_op = np.less
+        elif mode == 'max':
+            self.monitor_op = np.greater
         else:
-            begin_pos = 0
-        last_layer_sets[i][begin_pos : i] = 1
-    return last_layer_sets
+            if 'acc' in self.monitor:
+                self.monitor_op = np.greater
+            else:
+                self.monitor_op = np.less
 
-#This function generates all subsets of cut sets
-def generate_all_subsets(last_layer_sets):
-    all_sets = [np.array([0]*last_layer_sets.shape[0])]
-    for i in range(0, last_layer_sets.shape[0]):
-        ones = np.where(last_layer_sets[i])
-        for ii in itertools.product("01", repeat=len(ones[0])):
-            tmp = np.array([0]*last_layer_sets.shape[0])
-            tmp[ones] = np.asarray([int(x) for x in ii])
-            rep_flag=False
-            for elem in all_sets:
-                if np.array_equal(tmp, elem):
-                    rep_flag=True
-                    break
-            if (rep_flag==False):
-                all_sets.append(tmp)
-    all_sets = np.array(all_sets)
-     
-    return all_sets     
-    
+        if self.monitor_op == np.greater:
+            self.min_delta *= 1
+        else:
+            self.min_delta *= -1
+
+    def on_train_begin(self, logs=None):
+        # Allow instances to be re-used
+        self.wait = 0
+        self.stopped_epoch = 0
+        self.best = np.Inf if self.monitor_op == np.less else -np.Inf
+
+    def on_epoch_end(self, epoch, logs=None):
+        current = logs.get(self.monitor)
+        if current is None:
+            warnings.warn(
+                'Early stopping conditioned on metric `%s` '
+                'which is not available. Available metrics are: %s' %
+                (self.monitor, ','.join(list(logs.keys()))), RuntimeWarning
+            )
+            return
+        if self.monitor_op(current - self.min_delta, self.best):
+            self.best = current
+            self.wait = 0
+        else:
+            self.wait += 1
+            if self.wait >= self.patience:
+                self.stopped_epoch = epoch
+                self.model.stop_training = True
+
+    def on_train_end(self, logs=None):
+        global train_end_epochs
+        train_end_epochs.append(self.stopped_epoch)
+        if self.stopped_epoch > 0 and self.verbose > 0:
+            print('Epoch %05d: early stopping' % (self.stopped_epoch + 1))
+            
 class MaskedDenseLayer(Layer):
-    def __init__(self, output_dim, activation, **kwargs):
+    def __init__(self, output_dim, masks ,activation, **kwargs):
         self.output_dim = output_dim
         super(MaskedDenseLayer, self).__init__(**kwargs)
-        #self.units = units
-        #self.activation = activations.get(activation)
-        #self._layer_number = layer_number
+        self._mask = masks
         self._activation = activations.get(activation)
     def build(self, input_shape):
         # Create a trainable weight variable for this layer.
         self.kernel = self.add_weight(name='kernel', 
                                       shape=(input_shape[0][1], self.output_dim),
                                       initializer='glorot_uniform',
-                                      trainable=True)
+                                      trainable=True,
+                                      dtype="float32")
         super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
-
+    
     def call(self, l):
         self.x = l[0]
-        self._mask = l[1][1]
-        print('self._mask', self._mask)
-        #print('dot result:', K.dot(x, self.kernel))
-        kernel_shape = K.shape(self.kernel).eval(session=K.get_session())
-        #mask_shape = K.shape(self._mask).eval(session=K.get_session())
-        
-        #tiled_kernel = K.tile(K.reshape(self.kernel, [1, kernel_shape[0], kernel_shape[1]]), [20, 1, 1])
-        #print('kernel:', K.shape(self.kernel).eval(session=K.get_session()))
-        masked = Multiply()([self.kernel, self._mask])
-        #masked = Multiply()([self.kernel, packed_mask])
-        print('masked:', masked)
-        #print('x:', self.x)
-        self._output = K.dot(self.x, masked)
-        print('output:', self._output)
-        return self._activation(self._output)
+        self._state = l[1]
 
-    
+        bs = K.shape(self.x)[0]
+        ks = K.shape(self.kernel)
+
+        tmp_mask = tf.gather(tf.constant(self._mask), K.reshape(self._state,[-1]))
+        masked = tf.multiply(K.tile(K.reshape(self.kernel,[1,ks[0],ks[1]]),[bs,1,1]), tmp_mask)
+        self._output = tf.matmul(K.reshape(self.x,[bs,1,ks[0]]), masked)
+        return self._activation(K.reshape(self._output,[bs,self.output_dim]))
+  
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
 
+def dataset_gen_grid(height, width, trains, valids, tests, cum_probs, all_outcomes, prob_of_outcomes):
+    height = height
+    width = width
+    inputsize = height*width
     
+    num_of_train_samples = trains
+    num_of_valid_samples = valids
+    num_of_test_samples = tests
+    
+    train_data = np.ndarray(shape=(num_of_train_samples, inputsize), dtype=np.float32)
+    train_data_probs = np.ndarray(shape=(num_of_train_samples), dtype=np.float32)
+    for x in range(num_of_train_samples):
+        p = np.random.uniform(0,1)
+        i = np.searchsorted(cum_probs, p)
+        train_data[x][:] = all_outcomes[i]
+        train_data_probs[x] = prob_of_outcomes[i]
+    
+    
+    valid_data = np.ndarray(shape=(num_of_valid_samples, inputsize), dtype=np.float32)
+    valid_data_probs = np.ndarray(shape=(num_of_valid_samples), dtype=np.float32)
+    for x in range(num_of_valid_samples):
+        p = np.random.uniform(0,1)
+        i = np.searchsorted(cum_probs, p)
+        valid_data[x][:] = all_outcomes[i]
+        valid_data_probs[x] = prob_of_outcomes[i]
+    
+#    test_data = np.ndarray(shape=(num_of_test_samples, inputsize), dtype=np.float32)
+#    test_data_probs = np.ndarray(shape=(num_of_test_samples), dtype=np.float32)
+#    for x in range(num_of_test_samples):
+#        p = np.random.uniform(0,1)
+#        i = np.searchsorted(cum_probs, p)
+#        test_data[x][:] = all_outcomes[i]
+#        test_data_probs[x] = prob_of_outcomes[i]
+    test_data = all_outcomes[prob_of_outcomes > 0][:]
+    test_data_probs = prob_of_outcomes[prob_of_outcomes > 0]
+
+    file_name = 'datasets/grid_' + str(height) + 'x' + str(width) + '_' + str(num_of_train_samples) + str(num_of_valid_samples) + str(num_of_test_samples) + '.npz'
+    np.savez(file_name, 
+             height=height,
+             width=width,
+             train_length=num_of_train_samples,
+             train_data=train_data, 
+             train_data_probs = train_data_probs, 
+             valid_length=num_of_valid_samples, 
+             valid_data=valid_data,
+             valid_data_probs=valid_data_probs,
+             test_length=num_of_test_samples, #test_data.shape[0]
+             test_data=test_data,
+             test_data_probs=test_data_probs)
+    return file_name
+       
+def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo, min_related_nodes):
+        
+    all_masks = []
+    for i in range(0,num_of_all_masks):
+        #generating subsets as 3d matrix 
+        #subsets = np.random.randint(0, 2, (num_of_hlayer, hlayer_size, graph_size))
+        labels = np.zeros([num_of_hlayer, hlayer_size], dtype=np.float32)
+        min_label = 0
+        for ii in range(num_of_hlayer):
+            labels[ii][:] = np.random.randint(min_label, graph_size, (hlayer_size))
+            min_label = np.amin(labels[ii])
+        #generating masks as 3d matrix
+        #masks = np.zeros([num_of_hlayer,hlayer_size,hlayer_size])
+        
+        masks = []
+#        if (algo == 'orig'):
+#            pi = np.random.permutation(graph_size)
+#            #pi = np.array(range(graph_size))
+#        else:
+#            pi = np.array(range(graph_size))
+        #first layer mask
+        mask = np.zeros([graph_size, hlayer_size], dtype=np.float32)
+        for j in range(0, hlayer_size):
+            for k in range(0, graph_size):
+                if (algo == 'orig'):
+                    if (labels[0][j] >= k): 
+                        mask[k][j] = 1.0
+                else:
+                    if ((labels[0][j] >= k) and 
+                        (min_related_nodes[int(labels[0][j])] <= k)):  #cant use permutation in our approach
+                        mask[k][j] = 1.0
+        masks.append(mask)
+        
+        #hidden layers mask   
+        for i in range(1, num_of_hlayer):
+            mask = np.zeros([hlayer_size, hlayer_size], dtype=np.float32)
+            for j in range(0, hlayer_size):
+                for k in range(0, hlayer_size):
+                    if (algo == 'orig'):
+                        if (labels[i][j] >= labels[i-1][k]): 
+                            mask[k][j] = 1.0
+                    else:
+                        if ((labels[i][j] >= labels[i-1][k]) and 
+                            (min_related_nodes[int(labels[i][j])] <= labels[i-1][k])):
+                            mask[k][j] = 1.0
+            masks.append(mask)
+        
+        #last layer mask
+        mask = np.zeros([hlayer_size, graph_size], dtype=np.float32)
+        #last_layer_label = np.random.randint(0, 4, graph_size)
+        for j in range(0, graph_size):
+            for k in range(0, hlayer_size):
+                if (algo == 'orig'):
+                    if (j > labels[-1][k]): 
+                        mask[k][j] = 1.0
+                else:
+                    if (j > labels[-1][k]) and (min_related_nodes[j] <= labels[-1][k]): 
+                        mask[k][j] = 1.0
+        masks.append(mask)
+        all_masks.append(masks)
+        
+    swapped_all_masks = []
+    for i in range(num_of_hlayer+1):
+        swapped_masks = []
+        for j in range(num_of_all_masks):
+            swapped_masks.append(all_masks[j][i])
+        swapped_all_masks.append(swapped_masks)
+        
+    #all_masks = [[x*1.0 for x in y] for y in all_masks]
+    
+    return swapped_all_masks
+
+def isSeperated(a, b, adj):
+    new_adj = np.copy(adj)
+    new_adj[a:b,:] = 0
+    new_adj[:,a:b] = 0
+    
+    
+    visited = []
+    stack = [b]
+    while(len(stack) > 0):
+        current_node = stack[-1]
+        for i in range(new_adj.shape[1]):
+            if (new_adj[current_node][i] == 1 and i not in visited):
+                stack.append(i)
+                if (i < a):
+                    return False
+        visited.append(current_node)
+        stack.remove(current_node)
+    return True
+
 def main():
     
+    #parameter setup
+    height = int(sys.argv[1])
+    width = int(sys.argv[2])
+    train_length = int(sys.argv[3])
+    valid_length = int(sys.argv[4])
+    test_length = int(sys.argv[5])
+    algorithm = sys.argv[6]
+    print ('algorithm', algorithm)  #original or minus-width for now
     
-    np.random.seed(4125)
-    
-    with np.load('datasets/simple_tree.npz') as dataset:
-        inputsize = dataset['inputsize']
-        train_length = dataset['train_length']
-        train_data = dataset['train_data']
-        train_data_probs = dataset['train_data_probs']
-        valid_length = dataset['valid_length']
-        valid_data = dataset['valid_data']
-        valid_data_probs = dataset['valid_data_probs']
-        test_length = dataset['test_length']
-        test_data = dataset['test_data']
-        test_data_probs = dataset['test_data_probs']
-        params = dataset['params']
-    
-    height = 4
-    width = 3
-    
-    num_of_exec = 50
-    num_of_all_masks = 20
-    num_of_hlayer = 6
+    np.random.seed(4125) 
+    AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
+    num_of_exec = 2
+    num_of_all_masks = 10
+    num_of_hlayer = 2
     hlayer_size = 100
     graph_size = height*width
-    fit_iter = 300
-            
-    last_layer_sets = generate_lastlayer_sets(height, width)
-    all_subsets = generate_all_subsets(last_layer_sets)
+    fit_iter = 1
+    num_of_epochs = 2000   #max number of epoch if not reaches the ES condition
+    batch_s = 50
+    optimizer = AE_adam
+    patience = 20
+    inputsize = height*width
     
+    with np.load('grid_parameters.npz') as parameters:
+        adj_params = parameters['parameter']
+        
+    adj = np.zeros([inputsize, inputsize])
+    for r in range(0, height):
+        for c in range(0, width):
+            jj = r*width + c
+            if c > 0:
+                adj[jj-1][jj] = adj[jj][jj-1] = 1
+            if r > 0:
+                adj[jj-width][jj] = adj[jj][jj-width] = 1
+        
+    min_related_nodes = np.zeros(graph_size)
+    min_related_nodes[0] = 0
+    for i in range(graph_size):
+        for j in np.arange(i-1, -1, -1):
+            if isSeperated(j, i, adj):
+                min_related_nodes[i] = j
+                break
+            
+    all_outcomes = np.ndarray(shape=(2**inputsize, inputsize), dtype=np.float32)
+    prob_of_outcomes = np.ndarray(shape=(2**inputsize), dtype=np.float32)
+          
+    for i in range(2**inputsize):
+        str_samp = ('{0:0' + str(height*width) + 'b}').format(i)
+        asarr_samp = [int(d) for d in str_samp]
+        all_outcomes[i][:] = asarr_samp
+        sum_prod = 0
+        for r in range(height):
+            for c in range(width):
+                jj = r*width + c
+                if (c > 0):
+                    sum_prod += all_outcomes[i][jj]*all_outcomes[i][jj-1]*adj_params[jj][jj-1]
+                if (r > 0):
+                    sum_prod += all_outcomes[i][jj]*all_outcomes[i][jj-width]*adj_params[jj][jj-width]
+        p = np.exp(sum_prod)
+        prob_of_outcomes[i] = p
+    
+    sum_prob = np.sum(prob_of_outcomes)
+    prob_of_outcomes = np.divide(prob_of_outcomes, sum_prob)
+    
+    cum_probs = []
+    s = 0
+    for x in prob_of_outcomes:
+        s = s + x
+        cum_probs.append(s)
+        
+    file_name = dataset_gen_grid(height, width, train_length, valid_length, test_length, 
+                                     cum_probs, all_outcomes, prob_of_outcomes)
+    with np.load(file_name) as dataset:
+        print('Dataset:', file_name)
+        train_data = dataset['train_data']
+        train_data_probs = dataset['train_data_probs']
+        valid_data = dataset['valid_data']
+        valid_data_probs = dataset['valid_data_probs']
+        test_data = dataset['test_data']
+        test_data_probs = dataset['test_data_probs']
+    
+    NLLs = []
     KLs = []
-    for ne in range(0, num_of_exec):
-        all_masks = generate_all_masks(num_of_all_masks,
-                                       num_of_hlayer,
-                                       hlayer_size,
-                                       graph_size,
-                                       last_layer_sets,
-                                       all_subsets)
-        
-        input_layer = Input(shape=(4,))
+    start_time = time.time()
+    for ne in range(0, num_of_exec):                      
+        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm, min_related_nodes)
+#        perm_matrix = np.zeros((test_length, graph_size))
+#        for i in range(test_length):
+#            for j in range(graph_size):
+#                perm_matrix[i][j] = test_data[i][np.where(pi==j)[0][0]]
+            #perm_matrix[i][j] = test_data[i][k]  :  pi[k] == j
     
-        mask_1 = Input(shape = (graph_size , hlayer_size))
-        mask_2 = Input(shape = (hlayer_size , hlayer_size))
-        mask_3 = Input(shape = (hlayer_size , hlayer_size))
-        mask_4 = Input(shape = (hlayer_size , hlayer_size))
-        mask_5 = Input(shape = (hlayer_size , hlayer_size))
-        mask_6 = Input(shape = (hlayer_size , hlayer_size))
-        mask_7 = Input(shape = (hlayer_size , graph_size))
+        input_layer = Input(shape=(graph_size,))
+        state = Input(shape=(1,), dtype = "int32")
+
+        if (num_of_hlayer == 2): 
+            mask_1 = Input(shape = (graph_size , hlayer_size))
+            mask_2 = Input(shape = (hlayer_size , hlayer_size))
+            mask_3 = Input(shape = (hlayer_size , graph_size))
+        else:
+            mask_1 = Input(shape = (graph_size , hlayer_size))
+            mask_2 = Input(shape = (hlayer_size , hlayer_size))
+            mask_3 = Input(shape = (hlayer_size , hlayer_size))
+            mask_4 = Input(shape = (hlayer_size , hlayer_size))
+            mask_5 = Input(shape = (hlayer_size , hlayer_size))
+            mask_6 = Input(shape = (hlayer_size , hlayer_size))
+            mask_7 = Input(shape = (hlayer_size , graph_size))
     
+        if (num_of_hlayer == 2):
+            hlayer1 = MaskedDenseLayer(hlayer_size, np.array(all_masks[0]), 'relu')( [input_layer, state] )
+            hlayer2 = MaskedDenseLayer(hlayer_size, np.array(all_masks[1]), 'relu')( [hlayer1, state] )
+            output_layer = MaskedDenseLayer(graph_size, np.array(all_masks[2]), 'sigmoid')( [hlayer2, state] )
+        else:
+            hlayer1 = MaskedDenseLayer(hlayer_size, np.array(all_masks[0]), 'relu')( [input_layer, state] )
+            hlayer2 = MaskedDenseLayer(hlayer_size, np.array(all_masks[1]), 'relu')( [hlayer1, state] )
+            hlayer3 = MaskedDenseLayer(hlayer_size, np.array(all_masks[2]), 'relu')( [hlayer2, state] )
+            hlayer4 = MaskedDenseLayer(hlayer_size, np.array(all_masks[3]), 'relu')( [hlayer3, state] )
+            hlayer5 = MaskedDenseLayer(hlayer_size, np.array(all_masks[4]), 'relu')( [hlayer4, state] )
+            hlayer6 = MaskedDenseLayer(hlayer_size, np.array(all_masks[5]), 'relu')( [hlayer5, state] )
+            output_layer = MaskedDenseLayer(graph_size, np.array(all_masks[6]), 'sigmoid')( [hlayer6, state] )
+        if (num_of_hlayer == 6):
+            autoencoder = Model(inputs=[input_layer, state], outputs=[output_layer])
+        else:
+            autoencoder = Model(inputs=[input_layer, state], outputs=[output_layer])
         
-        hlayer1 = MaskedDenseLayer(hlayer_size, 'relu')( [input_layer, mask_1] )
-        hlayer2 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer1, mask_2] )
-        hlayer3 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer2, mask_3] )
-        hlayer4 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer3, mask_4] )
-        hlayer5 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer4, mask_5] )
-        hlayer6 = MaskedDenseLayer(hlayer_size, 'relu')( [hlayer5, mask_6] )
-        output_layer = MaskedDenseLayer(graph_size, 'sigmoid')( [hlayer6, mask_7] )
-        
-        autoencoder = Model(inputs=[input_layer, mask_1, mask_2, mask_3,
-                            mask_4, mask_5, mask_6, mask_7], outputs=[output_layer])
-        
-        AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-        autoencoder.compile(optimizer=AE_adam, loss='binary_crossentropy')
+        autoencoder.compile(optimizer=optimizer, loss='binary_crossentropy')
         #reassign_mask = ReassignMask()
+        early_stop = MyEarlyStopping(monitor='val_loss', min_delta=0, patience=patience, verbose=1, mode='auto')
         
+        reped_state_train = np.arange(train_length*num_of_all_masks, dtype=np.int32)/train_length
+        reped_state_valid = np.arange(valid_length*num_of_all_masks, dtype=np.int32)/valid_length
+        reped_traindata = np.tile(train_data, [num_of_all_masks, 1])
+        reped_validdata = np.tile(valid_data, [num_of_all_masks, 1])
+                
         for i in range(0, fit_iter):
-            state = np.random.randint(0,num_of_all_masks)
-            autoencoder.fit(x=[train_data, 
-                              np.tile(all_masks[state][0], [train_length, 1, 1]),
-                              np.tile(all_masks[state][1], [train_length, 1, 1]),
-                              np.tile(all_masks[state][2], [train_length, 1, 1]),
-                              np.tile(all_masks[state][3], [train_length, 1, 1]),
-                              np.tile(all_masks[state][4], [train_length, 1, 1]),
-                              np.tile(all_masks[state][5], [train_length, 1, 1]),
-                              np.tile(all_masks[state][6], [train_length, 1, 1])],
-                            y=[train_data],
-                            epochs=1,
-                            batch_size=50,
-                            shuffle=True,
-                            #validation_data=(valid_data, valid_data),
-                            #callbacks=[reassign_mask],
-                            verbose=1)
+            if (num_of_hlayer == 6):
+                autoencoder.fit(x=[reped_traindata, reped_state_train],
+                                  y=[reped_traindata],
+                                  epochs=num_of_epochs,
+                                  batch_size=batch_s,
+                                  shuffle=True,
+                                  validation_data=([reped_validdata, reped_state_valid],
+                                                    [reped_validdata]),
+                                  callbacks=[early_stop],
+                                  verbose=1)
+            else:
+                autoencoder.fit(x=[reped_traindata, 
+                                  reped_state_train],
+                                  y=[reped_traindata],
+                                  epochs=num_of_epochs,
+                                  batch_size=batch_s,
+                                  shuffle=True,
+                                  validation_data=([reped_validdata, reped_state_valid],
+                                                    [reped_validdata]),
+                                  callbacks=[early_stop],
+                                  verbose=1)
+
+        #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
+        made_probs = np.zeros([num_of_all_masks, test_length])
+        for j in range(num_of_all_masks):
+            made_predict = autoencoder.predict([test_data, j * np.ones([test_length,1])])#.reshape(1, hlayer_size, graph_size)]
             
-        #for idx, layer in enumerate(autoencoder.layers):
-            #print ("layer", idx, "= ", layer.get_weights)
-    #    input_layer = Input(shape=(4,))
-    #    encoded = Dense(3, activation='relu')(input_layer)
-    #    encoded = Dense(3, activation='relu')(encoded)
-    #    encoded = Dense(3, activation='relu')(encoded)
-    #
-    #    decoded = Dense(3, activation='relu')(encoded)
-    #    decoded = Dense(3, activation='relu')(decoded)
-    #    decoded = Dense(4, activation='sigmoid')(decoded)
-    #    autoencoder = Model(input_layer, decoded)
-    #    autoencoder.compile(optimizer='adam', loss='binary_crossentropy')
-    #    autoencoder.fit(train_data, train_data,
-    #                        epochs=100,
-    #                        batch_size=20,
-    #                        shuffle=True,
-    #                        validation_data=(valid_data, valid_data),
-    #                        verbose=2)
-        
-        b = autoencoder.predict([test_data, 
-                                np.tile(all_masks[state][0], [test_length, 1, 1]),
-                                np.tile(all_masks[state][1], [test_length, 1, 1]),
-                                np.tile(all_masks[state][2], [test_length, 1, 1]),
-                                np.tile(all_masks[state][3], [test_length, 1, 1]),
-                                np.tile(all_masks[state][4], [test_length, 1, 1]),
-                                np.tile(all_masks[state][5], [test_length, 1, 1]),
-                                np.tile(all_masks[state][6], [test_length, 1, 1])]
-                                )
-        made_probs = K.prod(b, 1).eval(session=K.get_session())
-        print('made_probs', made_probs)
-        #tmp = made_probs  train_data_probs
-        
-        KL = np.sum(np.multiply(made_probs, np.log(np.divide(made_probs, test_data_probs))))
+            corrected_probs = np.multiply(np.power(made_predict, test_data), 
+                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
+            made_prob = np.prod(corrected_probs, 1)
+            made_probs[j][:] = made_prob
+                  
+        all_avg_probs = np.mean(made_probs, axis=0)
+            
+        KL = -1*np.sum(np.multiply(test_data_probs, (np.log(all_avg_probs) - np.log(test_data_probs))))
+        NLL = -1*np.mean(np.log(all_avg_probs))
+        NLLs.append(NLL)
         KLs.append(KL)
-        
-    mean = sum(KLs)/num_of_exec
-    variance = np.sum(np.square([x - mean for x in KLs]))
-      
-    print('KLs:', KLs)
-    print('mean:', mean)
-    print('variance:', variance)
     
+    mean_NLLs = sum(NLLs)/num_of_exec
+    variance_NLLs = 1.0/len(NLLs) * np.sum(np.square([x - mean_NLLs for x in NLLs]))
+    mean_KLs = sum(KLs)/num_of_exec
+    variance_KLs = 1.0/len(KLs) * np.sum(np.square([x - mean_KLs for x in KLs]))
+    
+    total_time = time.time() - start_time
+    global train_end_epochs
+    print('End Epochs:', train_end_epochs)
+    print('End Epochs Average', np.mean(train_end_epochs))
+    print('NLLs:', NLLs)
+    print('KLs:', KLs)
+    print('Average KLs:', mean_KLs)
+    print('Variance KLs:', variance_KLs)
+    print('Average NLLs:', mean_NLLs)
+    print('Variance NLLs:', variance_NLLs)
+    print('Total Time:', total_time)
+
 if __name__=='__main__':
     main()

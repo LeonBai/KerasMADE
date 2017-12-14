@@ -117,7 +117,8 @@ class MaskedDenseLayer(Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
 
-def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo):
+def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo, min_related_nodes):
+        
     all_masks = []
     for i in range(0,num_of_all_masks):
         #generating subsets as 3d matrix 
@@ -142,10 +143,11 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, hlayer_size):
             for k in range(0, graph_size):
                 if (algo == 'orig'):
-                    if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
+                    if (labels[0][j] >= k): 
                         mask[k][j] = 1.0
                 else:
-                    if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
+                    if ((labels[0][j] >= k) and 
+                        (min_related_nodes[int(labels[0][j])] <= k)):  #cant use permutation in our approach
                         mask[k][j] = 1.0
         masks.append(mask)
         
@@ -155,10 +157,11 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
             for j in range(0, hlayer_size):
                 for k in range(0, hlayer_size):
                     if (algo == 'orig'):
-                        if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-width)):
+                        if (labels[i][j] >= labels[i-1][k]): 
                             mask[k][j] = 1.0
                     else:
-                        if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-width)):
+                        if ((labels[i][j] >= labels[i-1][k]) and 
+                            (min_related_nodes[int(labels[i][j])] <= labels[i-1][k])):
                             mask[k][j] = 1.0
             masks.append(mask)
         
@@ -168,10 +171,10 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
         for j in range(0, graph_size):
             for k in range(0, hlayer_size):
                 if (algo == 'orig'):
-                    if (j > labels[-1][k]): #and (j >= labels[-1][k]-width)):
+                    if (j > labels[-1][k]): 
                         mask[k][j] = 1.0
                 else:
-                    if ((j > labels[-1][k]) and (j >= labels[-1][k]-width)):
+                    if (j > labels[-1][k]) and (min_related_nodes[j] <= labels[-1][k]): 
                         mask[k][j] = 1.0
         masks.append(mask)
         all_masks.append(masks)
@@ -186,7 +189,26 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
     #all_masks = [[x*1.0 for x in y] for y in all_masks]
     
     return swapped_all_masks
+
+def isSeperated(a, b, adj):
+    new_adj = np.copy(adj)
+    new_adj[a:b,:] = 0
+    new_adj[:,a:b] = 0
     
+    
+    visited = []
+    stack = [b]
+    while(len(stack) > 0):
+        current_node = stack[-1]
+        for i in range(new_adj.shape[1]):
+            if (new_adj[current_node][i] == 1 and i not in visited):
+                stack.append(i)
+                if (i < a):
+                    return False
+        visited.append(current_node)
+        stack.remove(current_node)
+    return True
+
 def main():
     
     #parameter setup
@@ -213,6 +235,22 @@ def main():
     inputsize = height*width
     test_digit=1
     
+    adj = np.zeros([inputsize, inputsize])
+    for r in range(0, height):
+        for c in range(0, width):
+            jj = r*width + c
+            if c > 0:
+                adj[jj-1][jj] = adj[jj][jj-1] = 1
+            if r > 0:
+                adj[jj-width][jj] = adj[jj][jj-width] = 1
+        
+    min_related_nodes = np.zeros(graph_size)
+    min_related_nodes[0] = 0
+    for i in range(graph_size):
+        for j in np.arange(i-1, -1, -1):
+            if isSeperated(j, i, adj):
+                min_related_nodes[i] = j
+                break
 
     (x_train, y_train), (x_test, y_test) = mnist.load_data()    
     train_data = np.floor(x_train[y_train==test_digit][0:train_length].reshape(train_length, height*width).astype(np.float32)/255 + 0.5)
@@ -222,16 +260,14 @@ def main():
     NLLs = []            
     results = []
     start_time = time.time()
-    for ne in range(0, num_of_exec):   
-                    
-        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm)
+    for ne in range(0, num_of_exec):                      
+        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm, min_related_nodes)
 #        perm_matrix = np.zeros((test_length, graph_size))
 #        for i in range(test_length):
 #            for j in range(graph_size):
 #                perm_matrix[i][j] = test_data[i][np.where(pi==j)[0][0]]
             #perm_matrix[i][j] = test_data[i][k]  :  pi[k] == j
-
-        
+    
         input_layer = Input(shape=(graph_size,))
         state = Input(shape=(1,), dtype = "int32")
 
@@ -315,11 +351,12 @@ def main():
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
     model_json = autoencoder.to_json()
-    with open("mnist/model.json", "w") as json_file:
+    model_path = 'mnist/model_' + algorithm + '.json'
+    with open(model_path, "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    model_path = 'mnist/model_' + algorithm + '.h5'
-    autoencoder.save_weights(model_path)
+    weights_path = 'mnist/model_' + algorithm + '.h5'
+    autoencoder.save_weights(weights_path)
     print("Saved model to disk")
     
     results_path = 'mnist/mnist_' + algorithm + '_results'
