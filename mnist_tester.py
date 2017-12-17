@@ -117,7 +117,7 @@ class MaskedDenseLayer(Layer):
     def compute_output_shape(self, input_shape):
         return (input_shape[0][0], self.output_dim)
 
-def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo, min_related_nodes):
+def generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algo, min_related_nodes):
         
     all_masks = []
     for i in range(0,num_of_all_masks):
@@ -230,7 +230,7 @@ def main():
     results = []
     start_time = time.time()
     for ne in range(0, num_of_exec):                      
-        all_masks = generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm, min_related_nodes)
+        all_masks = generate_all_masks(num_of_all_masks, num_of_hlayer, hlayer_size, graph_size, algorithm, min_related_nodes)
 #        perm_matrix = np.zeros((test_length, graph_size))
 #        for i in range(test_length):
 #            for j in range(graph_size):
