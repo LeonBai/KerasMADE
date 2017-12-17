@@ -3,7 +3,7 @@ _results_on_*_MADE.csv
 /experiments/*
 *.png
 /results/*
-/datasets/*
+#/datasets/*
 
 # Sublime files
 *.sublime-project

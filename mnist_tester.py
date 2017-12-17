@@ -98,7 +98,7 @@ class MaskedDenseLayer(Layer):
                                       shape=(input_shape[0][1], self.output_dim),
                                       initializer='glorot_uniform',
                                       trainable=True,
-                                      dtype="float32")
+                                      dtype=np.float32)
         super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
     
@@ -190,25 +190,6 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
     
     return swapped_all_masks
 
-def isSeperated(a, b, adj):
-    new_adj = np.copy(adj)
-    new_adj[a:b,:] = 0
-    new_adj[:,a:b] = 0
-    
-    
-    visited = []
-    stack = [b]
-    while(len(stack) > 0):
-        current_node = stack[-1]
-        for i in range(new_adj.shape[1]):
-            if (new_adj[current_node][i] == 1 and i not in visited):
-                stack.append(i)
-                if (i < a):
-                    return False
-        visited.append(current_node)
-        stack.remove(current_node)
-    return True
-
 def main():
     
     #parameter setup
@@ -222,7 +203,7 @@ def main():
     
     np.random.seed(4125) 
     AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 5
+    num_of_exec = 1
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 1000
@@ -235,28 +216,19 @@ def main():
     inputsize = height*width
     test_digit=1
     
-    adj = np.zeros([inputsize, inputsize])
-    for r in range(0, height):
-        for c in range(0, width):
-            jj = r*width + c
-            if c > 0:
-                adj[jj-1][jj] = adj[jj][jj-1] = 1
-            if r > 0:
-                adj[jj-width][jj] = adj[jj][jj-width] = 1
+    with np.load('modelinfo/mnist_modelinfo.npz') as model:
+        min_related_nodes = model['min_related_nodes']
         
-    min_related_nodes = np.zeros(graph_size)
-    min_related_nodes[0] = 0
-    for i in range(graph_size):
-        for j in np.arange(i-1, -1, -1):
-            if isSeperated(j, i, adj):
-                min_related_nodes[i] = j
-                break
-
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()    
-    train_data = np.floor(x_train[y_train==test_digit][0:train_length].reshape(train_length, height*width).astype(np.float32)/255 + 0.5)
-    valid_data = np.floor(x_train[y_train==test_digit][-train_length:].reshape(train_length, height*width).astype(np.float32)/255 + 0.5)
-    test_data = np.floor(x_test[y_test==test_digit][0:test_length].reshape(test_length, height*width).astype(np.float32)/255 + 0.5)
-    
+    with np.load('datasets/binary_mnist_1.npz') as dataset:
+        data = np.copy(dataset['train_data'])
+        np.random.shuffle(data)
+        train_data = data[0:train_length][:]
+        np.random.shuffle(data)
+        valid_data = data[0:valid_length][:]
+        data = np.copy(dataset['test_data'])
+        np.random.shuffle(data)
+        test_data = data[0:test_length][:]
+        
     NLLs = []            
     results = []
     start_time = time.time()
@@ -267,7 +239,8 @@ def main():
 #            for j in range(graph_size):
 #                perm_matrix[i][j] = test_data[i][np.where(pi==j)[0][0]]
             #perm_matrix[i][j] = test_data[i][k]  :  pi[k] == j
-    
+
+        
         input_layer = Input(shape=(graph_size,))
         state = Input(shape=(1,), dtype = "int32")
 
@@ -334,29 +307,35 @@ def main():
                                   verbose=1)
 
         #reped_testdata = np.tile(test_data, [num_of_all_masks, 1])
-        made_probs = np.zeros([num_of_all_masks, test_length])
+        made_probs = np.zeros([num_of_all_masks, test_length], dtype=np.float32)
         for j in range(num_of_all_masks):
             made_predict = autoencoder.predict([test_data, j * np.ones([test_length,1])])#.reshape(1, hlayer_size, graph_size)]
-            
-            corrected_probs = np.multiply(np.power(made_predict, test_data), 
-                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
-            made_prob = np.prod(corrected_probs, 1)
+            made_predict[made_predict==0.0] = np.nextafter(np.float32(0), np.float32(1))
+            #made_predicts.append(made_predict)
+#            corrected_probs = np.multiply(np.power(made_predict, test_data), 
+#                            np.power(np.ones(made_predict.shape) - made_predict, np.ones(test_data.shape) - test_data))
+            corrected_probs = np.multiply(test_data, np.log(made_predict))
+            + np.multiply( (np.ones(test_data.shape) - test_data) , np.log(np.ones(made_predict.shape) - made_predict))
+            made_prob = np.sum(corrected_probs, 1)
             made_probs[j][:] = made_prob
-                  
-        all_avg_probs = np.mean(made_probs, axis=0)
+        
+        a_m = np.max(made_probs, axis=0)
+        diffsumexp = made_probs - np.tile(a_m, [num_of_all_masks,1])
+        all_avg_probs = np.log(np.ones(test_length)/test_length) + a_m
+        + np.log(np.sum(np.exp(diffsumexp), axis=0))
+#        all_avg_probs = np.mean(made_probs, axis=0)
         results.append(all_avg_probs)
-        NLL = -1*np.mean(np.log(all_avg_probs))
+        NLL = -1*np.mean(all_avg_probs)
         NLLs.append(NLL)
         #print('made_probs', made_probs)
         #print('test_probs', test_data_probs)
         #tmp = made_probs  train_data_probs
     model_json = autoencoder.to_json()
-    model_path = 'mnist/model_' + algorithm + '.json'
-    with open(model_path, "w") as json_file:
+    with open("mnist/model.json", "w") as json_file:
         json_file.write(model_json)
     # serialize weights to HDF5
-    weights_path = 'mnist/model_' + algorithm + '.h5'
-    autoencoder.save_weights(weights_path)
+    model_path = 'mnist/model_' + algorithm + '.h5'
+    autoencoder.save_weights(model_path)
     print("Saved model to disk")
     
     results_path = 'mnist/mnist_' + algorithm + '_results'

@@ -190,7 +190,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
                     if (labels[0][j] >= k): #and (pi[k] >= labels[0][j]-width)):
                         mask[k][j] = 1.0
                 else:
-                    if ((labels[0][j] >= k) and (k >= labels[0][j]-width)): #cant use permutation in our approach
+                    if ((labels[0][j] >= k) and (k - width <= labels[0][j])): #cant use permutation in our approach
                         mask[k][j] = 1.0
         masks.append(mask)
         
@@ -203,7 +203,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
                         if (labels[i][j] >= labels[i-1][k]): #and (labels[i][j] >= labels[i-1][k]-width)):
                             mask[k][j] = 1.0
                     else:
-                        if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] >= labels[i-1][k]-width)):
+                        if ((labels[i][j] >= labels[i-1][k]) and (labels[i][j] - width <= labels[i-1][k] )):
                             mask[k][j] = 1.0
             masks.append(mask)
         
@@ -216,7 +216,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
                     if (j > labels[-1][k]): #and (j >= labels[-1][k]-width)):
                         mask[k][j] = 1.0
                 else:
-                    if ((j > labels[-1][k]) and (j >= labels[-1][k]-width)):
+                    if ((j > labels[-1][k]) and (j - width <= labels[-1][k])):
                         mask[k][j] = 1.0
         masks.append(mask)
         all_masks.append(masks)
