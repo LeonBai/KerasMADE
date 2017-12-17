@@ -193,8 +193,7 @@ def generate_all_masks(height, width, num_of_all_masks, num_of_hlayer, hlayer_si
 def main():
     
     #parameter setup
-    height = int(sys.argv[1])
-    width = int(sys.argv[2])
+    graph_size = int(sys.argv[1])
     train_length = int(sys.argv[3])
     valid_length = int(sys.argv[4])
     test_length = int(sys.argv[5])
@@ -207,13 +206,11 @@ def main():
     num_of_all_masks = 10
     num_of_hlayer = 2
     hlayer_size = 1000
-    graph_size = height*width
     fit_iter = 1
     num_of_epochs = 2000   #max number of epoch if not reaches the ES condition
     batch_s = 50
     optimizer = AE_adam
     patience = 20
-    inputsize = height*width
     test_digit=1
     
     with np.load('modelinfo/mnist_modelinfo.npz') as model:
