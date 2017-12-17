@@ -194,9 +194,9 @@ def main():
     
     #parameter setup
     graph_size = int(sys.argv[1])
-    train_length = int(sys.argv[3])
-    valid_length = int(sys.argv[4])
-    test_length = int(sys.argv[5])
+    train_length = int(sys.argv[2])
+    valid_length = int(sys.argv[3])
+    test_length = int(sys.argv[4])
     algorithm = sys.argv[6]
     print ('algorithm', algorithm)  #original or minus-width for now
     
