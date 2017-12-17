@@ -197,7 +197,7 @@ def main():
     train_length = int(sys.argv[2])
     valid_length = int(sys.argv[3])
     test_length = int(sys.argv[4])
-    algorithm = sys.argv[6]
+    algorithm = sys.argv[5]
     print ('algorithm', algorithm)  #original or minus-width for now
     
     np.random.seed(4125) 
