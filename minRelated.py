@@ -25,17 +25,16 @@ def isSeperated(a, b, adj):
     return True
 
 def main():
-    height=28
-    width=28
-    inputsize=height*width
-    adj = np.zeros([inputsize, inputsize])
-    for r in range(0, height):
-        for c in range(0, width):
-            jj = r*width + c
-            if c > 0:
-                adj[jj-1][jj] = adj[jj][jj-1] = 1
-            if r > 0:
-                adj[jj-width][jj] = adj[jj][jj-width] = 1
+    
+    adj = np.array(
+            [[0, 0, 1, 0, 0, 0, 0, 0],
+             [0, 0, 0, 1, 0, 1, 0, 0],
+             [1, 0, 0, 1, 1, 0, 0, 0],
+             [0, 1, 1, 0, 1, 0, 0, 0],
+             [0, 0, 1, 1, 0, 1, 1, 1],
+             [0, 1, 0, 0, 1, 0, 0, 1],
+             [0, 0, 0, 0, 1, 0, 0, 0],
+             [0, 0, 0, 0, 1, 1, 0, 0]])
     
     min_related_nodes = np.zeros(adj.shape[0], dtype=np.float32)
     min_related_nodes[0] = 0
@@ -45,7 +44,7 @@ def main():
                 min_related_nodes[i] = j
                 break
             
-    np.savez('modelinfo/mnist_modelinfo.npz', min_related_nodes=min_related_nodes)
+    np.savez('asia_modelinfo.npz', min_related_nodes=min_related_nodes)
     
 if __name__=='__main__':
     main()

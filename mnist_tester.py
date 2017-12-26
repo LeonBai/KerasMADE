@@ -98,7 +98,7 @@ class MaskedDenseLayer(Layer):
                                       shape=(input_shape[0][1], self.output_dim),
                                       initializer='glorot_uniform',
                                       trainable=True,
-                                      dtype=np.float32)
+                                      dtype='float32')
         super(MaskedDenseLayer, self).build(input_shape)  # Be sure to call this somewhere!
 
     
@@ -201,11 +201,11 @@ def main():
     print ('algorithm', algorithm)  #original or minus-width for now
     
     np.random.seed(4125) 
-    AE_adam = optimizers.Adam(lr=0.0003, beta_1=0.1)
-    num_of_exec = 1
+    AE_adam = optimizers.Adam(lr=0.03, beta_1=0.1)
+    num_of_exec = 5
     num_of_all_masks = 10
     num_of_hlayer = 2
-    hlayer_size = 1000
+    hlayer_size = 20
     fit_iter = 1
     num_of_epochs = 2000   #max number of epoch if not reaches the ES condition
     batch_s = 50
@@ -213,10 +213,10 @@ def main():
     patience = 20
     test_digit=1
     
-    with np.load('modelinfo/mnist_modelinfo.npz') as model:
+    with np.load('modelinfo/asia_modelinfo.npz') as model:
         min_related_nodes = model['min_related_nodes']
         
-    with np.load('datasets/binary_mnist_1.npz') as dataset:
+    with np.load('datasets/asia.npz') as dataset:
         data = np.copy(dataset['train_data'])
         np.random.shuffle(data)
         train_data = data[0:train_length][:]
